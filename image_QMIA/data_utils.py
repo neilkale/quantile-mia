@@ -357,7 +357,7 @@ def get_cinic10(locator="cinic10/0_16", size=-1, data_root="./data"):
     transform_vanilla = None  # transforms.Compose([transforms.CenterCrop(32),])
 
     root_dir = os.path.join(data_root, "CINIC-10")
-
+    
     private_public_dataset = PairedImageFolder(
         size=size,
         mean=mean,
