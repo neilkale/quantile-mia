@@ -185,7 +185,7 @@ def argparser():
         args.dataset,
         "mia",
         args.model_name_prefix,
-        args.architecture,
+        args.architecture[1:] if args.architecture.startswith("/") else args.architecture, 
         "use_hinge_{}".format(args.use_hinge_score),
         "use_target_{}".format(args.use_target_label),
     )
