@@ -109,6 +109,8 @@ def get_huggingface_model(
         model_base = ViTForImageClassification(configuration)
         # feature_extractor = None
     else:
+        if model_checkpoint.startswith("/"):
+            model_checkpoint = model_checkpoint[1:]
         model_base = AutoModelForImageClassification.from_pretrained(
             model_checkpoint,
             num_labels=num_classes,
