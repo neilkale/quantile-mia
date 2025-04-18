@@ -33,7 +33,7 @@ def plot_model(
         )
     else:
         prediction_output_dir = os.path.join(
-            args.root_checkpoint_path,
+            args.root_checkpoint_path[1] if args.root_checkpoint_path.startswith("/") else args.root_checkpoint_path,
             "predictions",
             fig_name,
         )
@@ -167,7 +167,7 @@ def plot_model(
         savefig_path="./plots/{}/{}/{}/ray/use_hinge_{}/use_target_{}/{}.png".format(
             args.model_name_prefix + args.dataset,
             args.base_architecture.replace("/", "_"),
-            args.architecture.replace("/", "_"),
+            args.architecture[1:].replace("/", "_") if args.archiecture.startswith("/") else args.architecture.replace("/", "_"),
             args.use_hinge_score,
             args.use_target_label,
             fig_name,
