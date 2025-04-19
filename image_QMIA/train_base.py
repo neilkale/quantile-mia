@@ -150,9 +150,9 @@ def train_model(config, args, callbacks=None, rerun=False):
 
     trainer = pl.Trainer(
         max_epochs=config["epochs"],
-        accelerator="gpu",
+        accelerator="gpu", # SET TO `cpu` FOR DEBUGGING
         callbacks=callbacks,
-        devices=-1,
+        devices=-1, # SET TO 1 FOR DEBUGGING
         default_root_dir=checkpoint_dir,
         gradient_clip_val=config["gradient_clip_val"],
     )

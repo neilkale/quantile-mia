@@ -172,6 +172,13 @@ def argparser():
         default=False,
         help="just for plotting, stick to false",
     )
+    parser.add_argument(
+        "--cls_drop",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Classes to drop, e.g. --cls_drop 1 3 7",
+    )
 
     args = parser.parse_args()
     seed = args.seed
@@ -181,13 +188,14 @@ def argparser():
     random.seed(seed)
 
     args.root_checkpoint_path = os.path.join(
-        args.model_root,
-        args.dataset,
-        "mia",
-        args.model_name_prefix,
-        args.architecture[1:] if args.architecture.startswith("/") else args.architecture, 
-        "use_hinge_{}".format(args.use_hinge_score),
-        "use_target_{}".format(args.use_target_label),
+            args.model_root,
+            args.dataset,
+            "mia",
+            args.model_name_prefix,
+            args.architecture[1:] if args.architecture.startswith("/") else args.architecture, 
+            "use_hinge_{}".format(args.use_hinge_score),
+            "use_target_{}".format(args.use_target_label),
+            "cls_drop_" + "".join(str(c) for c in args.cls_drop),
     )
 
     return args
@@ -245,6 +253,7 @@ if __name__ == "__main__":
         image_size=args.image_size,
         batch_size=args.batch_size,
         data_root=args.data_root,
+        cls_drop=args.cls_drop,
     )
     metric = "ptl/val_loss"
     mode = "min"

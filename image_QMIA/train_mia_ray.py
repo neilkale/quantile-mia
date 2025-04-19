@@ -202,6 +202,14 @@ def argparser():
         help="just for plotting, stick to false",
     )
 
+    parser.add_argument(
+        "--cls_drop",
+        type=int,
+        nargs="+",
+        default=None,
+        help="dropped classes in mia model to use, e.g. --cls_drop 1 3 7",
+    )
+
     args = parser.parse_args()
 
     if "cifar100" in args.dataset.lower():
@@ -218,13 +226,14 @@ def argparser():
     random.seed(seed)
 
     args.root_checkpoint_path = os.path.join(
-        args.model_root,
-        args.dataset,
-        "mia",
-        args.model_name_prefix,
-        args.architecture,
-        "use_hinge_{}".format(args.use_hinge_score),
-        "use_target_{}".format(args.use_target_label),
+            args.model_root,
+            args.dataset,
+            "mia",
+            args.model_name_prefix,
+            args.architecture[1:] if args.architecture.startswith("/") else args.architecture, 
+            "use_hinge_{}".format(args.use_hinge_score),
+            "use_target_{}".format(args.use_target_label),
+            "cls_drop_" + "".join(str(c) for c in args.cls_drop),
     )
 
     return args
@@ -302,6 +311,7 @@ def train_func(config, num_gpus=1):
         batch_size=args.batch_size,
         data_root=args.data_root,
         use_augmentation=config["use_augmentation"],
+        cls_drop=args.cls_drop,
     )
     trainer.fit(model, datamodule=datamodule)
 

@@ -388,7 +388,7 @@ class LightningQMIA(pl.LightningModule):
             base_samples, targets, self.base_model
         )
         loss = self.loss_fn(scores, target_score, self.QUANTILE.to(scores.device))
-        base_acc1, base_acc5 = accuracy(target_logits, targets, topk=(1, 5))
+        base_acc1, base_acc5 = per_sample_accuracy(target_logits, targets, topk=(1, 5))
 
         if self.use_gaussian and not self.return_mean_logstd:
             # use torch distribution to output quantiles
@@ -409,7 +409,7 @@ class LightningQMIA(pl.LightningModule):
                 scores.shape, targets.shape, self.QUANTILE.size()
             )
 
-        return scores, target_score, loss, base_acc1, base_acc5
+        return scores, target_score, loss, base_acc1, base_acc5, targets
 
     def configure_optimizers(self):
         optimizer = build_optimizer(
@@ -491,3 +491,25 @@ def load_pickle(name="quantile_model.pickle", map_location=None, base_model_dir=
     else:
         state_dict = torch.load(pickle_path)
     return state_dict
+
+def per_sample_accuracy(output, target, topk=(1,)):
+    """
+    Computes per-sample accuracy over the k top predictions
+    Returns a list of tensors, each of size [batch_size], with 1.0 for correct predictions and 0.0 for incorrect ones
+    """
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            # Reshape to [k, batch_size] and check if any of top-k predictions are correct for each sample
+            correct_k = correct[:k].view(k, batch_size)
+            per_sample_correct = correct_k.any(dim=0).float()  # [batch_size] tensor with 1.0/0.0 values
+            res.append(per_sample_correct)
+
+        return res

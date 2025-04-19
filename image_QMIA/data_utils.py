@@ -421,6 +421,7 @@ def get_data(
     size=-1,
     data_root="./data",
     use_augmentation=True,
+    cls_drop=None,
 ):
     if dataset.startswith("cifar"):
         (
@@ -462,6 +463,17 @@ def get_data(
 
         public_dataset = torch.utils.data.Subset(private_dataset, indices_b)
         private_dataset = torch.utils.data.Subset(private_dataset, indices_a)
+
+    if cls_drop:
+        if isinstance(cls_drop, int):
+            raise ValueError("cls_drop must be a list of class IDs")
+        cls_drop = set(cls_drop)
+        
+        original_dataset = public_dataset.dataset
+        current_indices = public_dataset.indices
+        new_indices = [idx for idx in current_indices 
+                    if original_dataset.targets[idx] not in cls_drop]
+        public_dataset = torch.utils.data.Subset(original_dataset, new_indices)
 
     dataset_dict = {
         "private": private_dataset,
@@ -784,7 +796,7 @@ def get_imagefolder_dataset(dataset_name, size=-1, data_root="./data"):
     test_dataset = torchvision.datasets.ImageFolder(
         os.path.join(root_dir, "test"), transform=transform_test
     )
-
+    
     dataset_dict = {
         "private": private_dataset,
         "public": public_dataset,
@@ -817,6 +829,7 @@ class CustomDataModule(pl.LightningDataModule):
         image_size: int = -1,
         data_root: str = "./data",
         use_augmentation: bool = True,
+        cls_drop: Optional[list] = None,
     ):
         super().__init__()
 
@@ -827,6 +840,7 @@ class CustomDataModule(pl.LightningDataModule):
         self.image_size = image_size
         self.data_root = data_root
         self.use_augmentation = use_augmentation
+        self.cls_drop = cls_drop
 
     def setup(self, stage: Optional[str] = None) -> None:
         dataset_dict, transform_dict, num_base_classes = get_data(
@@ -835,6 +849,7 @@ class CustomDataModule(pl.LightningDataModule):
             size=self.image_size,
             data_root=self.data_root,
             use_augmentation=self.use_augmentation,
+            cls_drop=self.cls_drop,
         )
 
         self.num_base_classes = num_base_classes

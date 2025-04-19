@@ -11,7 +11,7 @@ from glob import glob
 import numpy as np
 import pytorch_lightning as pl
 import torch
-from analysis_utils import plot_performance_curves
+from analysis_utils import plot_performance_curves, plot_performance_curves_id_ood
 from data_utils import CustomDataModule
 from lightning_utils import CustomWriter, LightningQMIA
 from train_mia_ray import argparser
@@ -110,6 +110,7 @@ def plot_model(
         private_loss,
         private_base_acc1,
         private_base_acc5,
+        private_targets
     ) = join_list_of_tuples(predict_results[-1])
     (
         test_predicted_quantile_threshold,
@@ -117,6 +118,7 @@ def plot_model(
         test_loss,
         test_base_acc1,
         test_base_acc5,
+        test_targets
     ) = join_list_of_tuples(predict_results[1])
 
     model_target_quantiles = np.sort(
@@ -146,34 +148,76 @@ def plot_model(
         private_predicted_quantile_threshold = (
             private_mu + private_std * dislocated_quantiles
         )
-    print(
-        "Model accuracy on training set {:.2f}%".format(
-            np.mean(private_base_acc1.numpy())
-        )
-    )
-    print("Model accuracy on test set  {:.2f}%".format(np.mean(test_base_acc1.numpy())))
+    
+    drop_set = set(args.cls_drop or [])        
+    if len(drop_set) > 0:
 
-    plot_result = plot_performance_curves(
-        np.asarray(private_target_score),
-        np.asarray(test_target_score),
-        private_predicted_score_thresholds=np.asarray(
-            private_predicted_quantile_threshold
-        ),
-        public_predicted_score_thresholds=np.asarray(test_predicted_quantile_threshold),
-        model_target_quantiles=model_target_quantiles,
-        model_name="Quantile Regression",
-        use_logscale=True,
-        fontsize=12,
-        savefig_path="./plots/{}/{}/{}/ray/use_hinge_{}/use_target_{}/{}.png".format(
-            args.model_name_prefix + args.dataset,
-            args.base_architecture.replace("/", "_"),
-            args.architecture[1:].replace("/", "_") if args.archiecture.startswith("/") else args.architecture.replace("/", "_"),
-            args.use_hinge_score,
-            args.use_target_label,
-            fig_name,
-        ),
-    )
-    return plot_result
+        priv_ood   = torch.tensor([l.item() in drop_set for l in private_targets])
+        test_ood   = torch.tensor([l.item() in drop_set for l in test_targets])
+        priv_id    = ~priv_ood
+        test_id    = ~test_ood
+
+        def pct(x): return 100*x.mean().item()
+        print("Model accuracy on training set  ID: {:.2f}%  OOD: {:.2f}%".format(
+            pct(private_base_acc1[priv_id]), pct(private_base_acc1[priv_ood])))
+        print("Model accuracy on test set     ID: {:.2f}%  OOD: {:.2f}%".format(
+            pct(test_base_acc1[test_id]),    pct(test_base_acc1[test_ood])))
+        
+        # Use the new side-by-side plotting function
+        results, fig, axes = plot_performance_curves_id_ood(
+            np.asarray(private_target_score),
+            np.asarray(test_target_score),
+            private_predicted_score_thresholds=np.asarray(
+                private_predicted_quantile_threshold
+            ),
+            public_predicted_score_thresholds=np.asarray(test_predicted_quantile_threshold),
+            model_target_quantiles=model_target_quantiles,
+            model_name="Quantile Regression",
+            private_id_mask=priv_id,
+            private_ood_mask=priv_ood,
+            public_id_mask=test_id,
+            public_ood_mask=test_ood,
+            use_logscale=True,
+            fontsize=12,
+            savefig_path="./plots/{}/{}/{}/ray/use_hinge_{}/use_target_{}/cls_drop_{}/{}.png".format(
+                args.model_name_prefix + args.dataset,
+                args.base_architecture.replace("/", "_"),
+                args.architecture[1:].replace("/", "_") if args.architecture.startswith("/") else args.architecture.replace("/", "_"),
+                args.use_hinge_score,
+                args.use_target_label,
+                "".join(str(c) for c in args.cls_drop),
+                fig_name,
+            ),
+        )
+    else:
+        print(
+            "Model accuracy on training set {:.2f}%".format(
+                np.mean(private_base_acc1.numpy())
+            )
+        )
+        print("Model accuracy on test set  {:.2f}%".format(np.mean(test_base_acc1.numpy())))
+        plot_result = plot_performance_curves(
+            np.asarray(private_target_score),
+            np.asarray(test_target_score),
+            private_predicted_score_thresholds=np.asarray(
+                private_predicted_quantile_threshold
+            ),
+            public_predicted_score_thresholds=np.asarray(test_predicted_quantile_threshold),
+            model_target_quantiles=model_target_quantiles,
+            model_name="Quantile Regression",
+            use_logscale=True,
+            fontsize=12,
+            savefig_path="./plots/{}/{}/{}/ray/use_hinge_{}/use_target_{}/cls_drop_{}/{}.png".format(
+                args.model_name_prefix + args.dataset,
+                args.base_architecture.replace("/", "_"),
+                args.architecture[1:].replace("/", "_") if args.architecture.startswith("/") else args.architecture.replace("/", "_"),
+                args.use_hinge_score,
+                args.use_target_label,
+                "".join(str(c) for c in args.cls_drop),
+                fig_name,
+            ),
+        )
+    return
 
 
 if __name__ == "__main__":
@@ -185,6 +229,6 @@ if __name__ == "__main__":
         args,
         dst_checkpoint_path,
         "best",
-        recompute_predictions=False,
+        recompute_predictions=True,
         return_mean_logstd=args.return_mean_logstd,
     )
