@@ -58,6 +58,27 @@ def label_logit_and_hinge_scoring_fn(samples, label, base_model):
         ), "hinge loss score should be 1-dimensional, got {}".format(score.shape)
     return score, logits
 
+# def max_confidence_scoring_fn(samples, base_model):
+#     base_model.eval()
+#     with torch.no_grad():
+#         logits = base_model(samples)
+#         max_score = torch.max(logits, dim=1)[0]  # Just take the maximum confidence
+#     return max_score, logits
+
+def top_two_margin_scoring_fn(samples, label, base_model):
+    # z_{max}(x) - z_{second-max}(x)
+    base_model.eval()
+    with torch.no_grad():
+        logits = base_model(samples)
+        sorted_logits, _ = torch.sort(logits, dim=1, descending=True)
+        
+        top_logit = sorted_logits[:, 0]
+        second_top_logit = sorted_logits[:, 1]
+        score = top_logit - second_top_logit
+        assert (
+            score.ndim == 1
+        ), "margin score should be 1-dimensional, got {}".format(score.shape)
+    return score, logits
 
 ##########
 # logit to quantile prediction nonlinearities for QR

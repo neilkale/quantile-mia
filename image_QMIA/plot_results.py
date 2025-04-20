@@ -164,7 +164,7 @@ def plot_model(
             pct(test_base_acc1[test_id]),    pct(test_base_acc1[test_ood])))
         
         # Use the new side-by-side plotting function
-        results, fig, axes = plot_performance_curves_id_ood(
+        plot_performance_curves_id_ood(
             np.asarray(private_target_score),
             np.asarray(test_target_score),
             private_predicted_score_thresholds=np.asarray(
@@ -229,6 +229,6 @@ if __name__ == "__main__":
         args,
         dst_checkpoint_path,
         "best",
-        recompute_predictions=True,
+        recompute_predictions=False,
         return_mean_logstd=args.return_mean_logstd,
     )

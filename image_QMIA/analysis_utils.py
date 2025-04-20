@@ -3,6 +3,7 @@ import pickle
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 # Get base quantile performances
 
@@ -339,11 +340,48 @@ def plot_performance_curves_id_ood(
             np.zeros_like(public_target_scores, dtype=bool)  # No OOD data
         ]
     
+    # Define convenience_dict function similar to the first function
+    def convenience_dict(
+        model_precision,
+        model_tpr,
+        model_tnr,
+        model_auc,
+        model_public_loss,
+        model_private_loss,
+        adjusted_public_loss=None,
+    ):
+        idx_1pc = np.argmin(np.abs(model_tnr - 0.99))
+        idx_01pc = np.argmin(np.abs(model_tnr - 0.999))
+        print(
+            "Precision @1%  FPR {:.2f}% \t  TPR @ 1% FPR {:.2f}% ".format(
+                model_precision[idx_1pc] * 100, model_tpr[idx_1pc] * 100
+            )
+        )
+        print(
+            "Precision @0.1% FPR {:.2f}% \t  TPR @ 0.1% FPR {:.2f}% ".format(
+                model_precision[idx_01pc] * 100, model_tpr[idx_01pc] * 100
+            )
+        )
+        cdict = {
+            "precision": model_precision,
+            "tpr": model_tpr,
+            "tnr": model_tnr,
+            "auc": model_auc,
+            "public_loss": model_public_loss,
+            "private_loss": model_private_loss,
+        }
+        cdict["adjusted_public_loss"] = (
+            adjusted_public_loss
+            if adjusted_public_loss is not None
+            else model_public_loss
+        )
+        return cdict
+    
     # For each dataset type (ID and OOD)
     results = {}
     for i, (dataset_type, priv_mask, pub_mask) in enumerate(zip(dataset_types, private_masks, public_masks)):
         # Skip if no data for this type in either dataset
-        if not np.any(priv_mask) or not np.any(pub_mask):
+        if not torch.any(priv_mask) or not torch.any(pub_mask):
             continue
             
         # Filter data based on masks
@@ -380,9 +418,14 @@ def plot_performance_curves_id_ood(
             baseline_thresholds.reshape([1, -1]),
         )
         
+        # Calculate baseline AUC
+        baseline_auc = np.abs(np.trapz(baseline_tpr, x=1 - baseline_tnr))
+        
         # Calculate model metrics if available
         model_precision, model_tpr, model_tnr = None, None, None
         model_public_loss, model_private_loss = None, None
+        model_adjusted_public_loss = None
+        model_auc = None
         
         if (private_predicted_score_thresholds is not None and use_thresholds):
             filtered_private_thresholds = private_predicted_score_thresholds[priv_mask]
@@ -408,6 +451,14 @@ def plot_performance_curves_id_ood(
                 filtered_private_thresholds,
                 model_target_quantiles,
             )
+            
+            model_adjusted_public_loss = pinball_loss_np(
+                filtered_public_scores, 
+                filtered_public_thresholds, 
+                model_tnr
+            )
+            
+            model_auc = np.abs(np.trapz(model_tpr, x=1 - model_tnr))
         
         # Plot ROC curve
         ax_roc = axes[0, i]
@@ -417,7 +468,6 @@ def plot_performance_curves_id_ood(
         ax_roc.set_ylim([1e-3, 1])
         ax_roc.set_xlim([1e-3, 1])
         
-        baseline_auc = np.abs(np.trapz(baseline_tpr, x=1 - baseline_tnr))
         ax_roc.plot(
             1 - baseline_tnr,
             baseline_tpr,
@@ -426,7 +476,6 @@ def plot_performance_curves_id_ood(
         )
         
         if model_tpr is not None:
-            model_auc = np.abs(np.trapz(model_tpr, x=1 - model_tnr))
             ax_roc.plot(
                 1 - model_tnr,
                 model_tpr,
@@ -464,33 +513,30 @@ def plot_performance_curves_id_ood(
         ax_pinball.set_xscale('log')
         ax_pinball.legend()
         
-        # Store results for return and pickle
-        results[dataset_type] = {
-            "baseline": {
-                "precision": baseline_precision,
-                "tpr": baseline_tpr,
-                "tnr": baseline_tnr,
-                "auc": baseline_auc,
-                "public_loss": baseline_public_loss,
-                "private_loss": baseline_private_loss
-            }
-        }
+        # Print and store results using convenience_dict
+        print(f"\n{dataset_type} dataset:")
+        
+        print("baseline")
+        results[dataset_type] = {"baseline": convenience_dict(
+            baseline_precision,
+            baseline_tpr,
+            baseline_tnr,
+            baseline_auc,
+            baseline_public_loss,
+            baseline_private_loss,
+        )}
         
         if model_tpr is not None:
-            results[dataset_type]["model"] = {
-                "precision": model_precision,
-                "tpr": model_tpr,
-                "tnr": model_tnr,
-                "auc": model_auc,
-                "public_loss": model_public_loss,
-                "private_loss": model_private_loss
-            }
-            
-            # Print performance metrics
-            idx_1pc = np.argmin(np.abs(model_tnr - 0.99))
-            idx_01pc = np.argmin(np.abs(model_tnr - 0.999))
-            print(f"{dataset_type} Precision @1%  FPR {model_precision[idx_1pc] * 100:.2f}% \t TPR @ 1% FPR {model_tpr[idx_1pc] * 100:.2f}%")
-            print(f"{dataset_type} Precision @0.1% FPR {model_precision[idx_01pc] * 100:.2f}% \t TPR @ 0.1% FPR {model_tpr[idx_01pc] * 100:.2f}%")
+            print("model")
+            results[dataset_type]["model"] = convenience_dict(
+                model_precision,
+                model_tpr,
+                model_tnr,
+                model_auc,
+                model_public_loss,
+                model_private_loss,
+                model_adjusted_public_loss,
+            )
     
     # Adjust layout and save
     plt.tight_layout()
@@ -512,4 +558,8 @@ def plot_performance_curves_id_ood(
     if plot_results:
         plt.show()
     
-    return results, fig, axes
+    # Return baseline and model AUCs from ID dataset (if available)
+    id_baseline_auc = results.get("ID", {}).get("baseline", {}).get("auc", None) if "ID" in results else None
+    id_model_auc = results.get("ID", {}).get("model", {}).get("auc", None) if "ID" in results and "model" in results["ID"] else None
+    
+    return id_baseline_auc, id_model_auc

@@ -206,7 +206,7 @@ def argparser():
         "--cls_drop",
         type=int,
         nargs="+",
-        default=None,
+        default=[],
         help="dropped classes in mia model to use, e.g. --cls_drop 1 3 7",
     )
 

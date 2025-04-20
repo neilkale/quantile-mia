@@ -30,6 +30,7 @@ from train_utils import (
     label_logit_and_hinge_scoring_fn,
     pinball_loss_fn,
     rearrange_quantile_fn,
+    top_two_margin_scoring_fn,
 )
 
 # base utilities
@@ -291,14 +292,20 @@ class LightningQMIA(pl.LightningModule):
 
         if self.use_gaussian:
             self.loss_fn = gaussian_loss_fn
-            self.target_scoring_fn = label_logit_and_hinge_scoring_fn
+            if use_target_label:
+                self.target_scoring_fn = label_logit_and_hinge_scoring_fn
+            else:
+                self.target_scoring_fn = top_two_margin_scoring_fn
             self.rearrange_on_predict = False
         else:
             self.loss_fn = pinball_loss_fn
-            self.target_scoring_fn = label_logit_and_hinge_scoring_fn
+            if use_target_label:
+                self.target_scoring_fn = label_logit_and_hinge_scoring_fn
+                if not use_hinge_score:
+                    raise NotImplementedError
+            else:
+                self.target_scoring_fn = top_two_margin_scoring_fn
             self.rearrange_on_predict = rearrange_on_predict and not use_logscale
-            if not use_target_label or not use_hinge_score:
-                raise NotImplementedError
 
         optimizer_params.update(**kwargs)
         self.optimizer_params = get_optimizer_params(optimizer_params)
