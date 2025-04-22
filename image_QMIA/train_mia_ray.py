@@ -232,7 +232,8 @@ def argparser():
             args.model_name_prefix,
             args.architecture[1:] if args.architecture.startswith("/") else args.architecture, 
             "use_hinge_{}".format(args.use_hinge_score),
-            "use_target_{}".format(args.use_target_label),
+            "use_target_label_{}".format(args.use_target_label),
+            "use_target_inputs_{}".format(args.use_target_inputs),
             "cls_drop_" + "".join(str(c) for c in args.cls_drop),
     )
 

@@ -264,7 +264,7 @@ class LightningQMIA(pl.LightningModule):
             hidden_dims=hidden_dims,
             freeze_embedding=freeze_embedding,
             base_model_path=base_model_path,
-            extra_inputs=num_base_classes if self.use_target_inputs else None,
+            extra_inputs=6 if self.use_target_inputs else None, # MODIFIED TO USE # OF SUMMARY STATISTICS INSTEAD OF `num_base_classes`
         )
 
         self.model = model
@@ -313,10 +313,32 @@ class LightningQMIA(pl.LightningModule):
         self.validation_step_outputs = []
 
     def forward(
-        self, samples: torch.Tensor, targets: torch.LongTensor = None
+        self, samples: torch.Tensor, targets: torch.LongTensor = None, target_logits: torch.Tensor = None
     ) -> torch.Tensor:
         if self.use_target_inputs:
-            oh_targets = to_onehot(targets, self.num_base_classes)
+            # oh_targets = to_onehot(targets, self.num_base_classes)
+            # oh_targets = torch.sort(target_logits, dim=-1, descending=True)[0]
+            sorted_logits = torch.sort(target_logits, dim=1, descending=True)[0]
+            softmax_probs = torch.softmax(target_logits, dim=1)
+            entropy = -torch.sum(softmax_probs * torch.log(softmax_probs + 1e-10), dim=1)
+            margin = sorted_logits[:, 0] - sorted_logits[:, 1]
+            mean = torch.mean(target_logits, dim=1, keepdim=True)
+            std = torch.std(target_logits, dim=1, keepdim=True) + 1e-10  # prevent div by zero
+            skewness = torch.mean(((target_logits - mean) / std) ** 3, dim=1, keepdim=True)
+            kurtosis = torch.mean(((target_logits - mean) / std) ** 4, dim=1, keepdim=True) - 3
+            oh_targets = torch.cat(
+                [
+                    entropy.unsqueeze(1),
+                    margin.unsqueeze(1),
+                    mean,
+                    std,
+                    skewness,
+                    kurtosis,
+                ],
+                dim=1,
+            )
+
+
             scores = self.model(samples, oh_targets)
             return scores
         scores = self.model(samples)
@@ -336,10 +358,12 @@ class LightningQMIA(pl.LightningModule):
 
     def training_step(self, batch, batch_idx: int) -> torch.Tensor:
         samples, targets, base_samples = get_batch(batch)
-        scores = self.forward(samples, targets)
+
         target_score, target_logits = self.target_scoring_fn(
             base_samples, targets, self.base_model
         )
+        scores = self.forward(samples, targets, target_logits)
+
         loss = self.loss_fn(
             scores, target_score, self.QUANTILE.to(scores.device)
         ).mean()
@@ -349,14 +373,15 @@ class LightningQMIA(pl.LightningModule):
     def validation_step(self, batch, batch_idx: int):
         samples, targets, base_samples = get_batch(batch)
         # print('VALIDATION STEP', self.model.training), print(self.base_model.training)
-        scores = self.forward(samples, targets)
+        target_score, target_logits = self.target_scoring_fn(
+            base_samples, targets, self.base_model
+        )
+
+        scores = self.forward(samples, targets, target_logits)
         if self.rearrange_on_predict and not self.use_gaussian:
             scores = rearrange_quantile_fn(
                 scores, self.QUANTILE.to(scores.device).flatten()
             )
-        target_score, target_logits = self.target_scoring_fn(
-            base_samples, targets, self.base_model
-        )
         loss = self.loss_fn(
             scores, target_score, self.QUANTILE.to(scores.device)
         ).mean()
@@ -386,14 +411,15 @@ class LightningQMIA(pl.LightningModule):
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         samples, targets, base_samples = get_batch(batch)
 
-        scores = self.forward(samples, targets)
+        target_score, target_logits = self.target_scoring_fn(
+            base_samples, targets, self.base_model
+        )
+
+        scores = self.forward(samples, targets, target_logits)
         if self.rearrange_on_predict and not self.use_gaussian:
             scores = rearrange_quantile_fn(
                 scores, self.QUANTILE.to(scores.device).flatten()
             )
-        target_score, target_logits = self.target_scoring_fn(
-            base_samples, targets, self.base_model
-        )
         loss = self.loss_fn(scores, target_score, self.QUANTILE.to(scores.device))
         base_acc1, base_acc5 = per_sample_accuracy(target_logits, targets, topk=(1, 5))
 

@@ -149,7 +149,10 @@ def plot_model(
             private_mu + private_std * dislocated_quantiles
         )
     
-    drop_set = set(args.cls_drop or [])        
+    drop_set = set(args.cls_drop or [])  
+    # curiosity_set = [0] # For examining performance on a class if we don't drop it.
+    # drop_set |= set(curiosity_set)
+
     if len(drop_set) > 0:
 
         priv_ood   = torch.tensor([l.item() in drop_set for l in private_targets])
@@ -179,12 +182,13 @@ def plot_model(
             public_ood_mask=test_ood,
             use_logscale=True,
             fontsize=12,
-            savefig_path="./plots/{}/{}/{}/ray/use_hinge_{}/use_target_{}/cls_drop_{}/{}.png".format(
+            savefig_path="./plots/{}/{}/{}/ray/use_hinge_{}/use_target_label_{}/use_target_inputs_{}/cls_drop_{}/{}.png".format(
                 args.model_name_prefix + args.dataset,
                 args.base_architecture.replace("/", "_"),
                 args.architecture[1:].replace("/", "_") if args.architecture.startswith("/") else args.architecture.replace("/", "_"),
                 args.use_hinge_score,
                 args.use_target_label,
+                args.use_target_inputs,
                 "".join(str(c) for c in args.cls_drop),
                 fig_name,
             ),
@@ -207,12 +211,13 @@ def plot_model(
             model_name="Quantile Regression",
             use_logscale=True,
             fontsize=12,
-            savefig_path="./plots/{}/{}/{}/ray/use_hinge_{}/use_target_{}/cls_drop_{}/{}.png".format(
+            savefig_path="./plots/{}/{}/{}/ray/use_hinge_{}/use_target_label_{}/use_target_inputs_{}/cls_drop_{}/{}.png".format(
                 args.model_name_prefix + args.dataset,
                 args.base_architecture.replace("/", "_"),
                 args.architecture[1:].replace("/", "_") if args.architecture.startswith("/") else args.architecture.replace("/", "_"),
                 args.use_hinge_score,
                 args.use_target_label,
+                args.use_target_inputs,
                 "".join(str(c) for c in args.cls_drop),
                 fig_name,
             ),
@@ -229,6 +234,6 @@ if __name__ == "__main__":
         args,
         dst_checkpoint_path,
         "best",
-        recompute_predictions=False,
+        recompute_predictions=True,
         return_mean_logstd=args.return_mean_logstd,
     )
