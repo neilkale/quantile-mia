@@ -337,8 +337,6 @@ class LightningQMIA(pl.LightningModule):
                 ],
                 dim=1,
             )
-
-
             scores = self.model(samples, oh_targets)
             return scores
         scores = self.model(samples)
@@ -408,14 +406,53 @@ class LightningQMIA(pl.LightningModule):
         self.validation_step_outputs.clear()  # free memory
         self.log("ptl/val_loss", avg_loss, sync_dist=True, prog_bar=True)
 
+    # def predict_step(self, batch, batch_idx, dataloader_idx=0):
+    #     samples, targets, base_samples = get_batch(batch)
+
+    #     target_score, target_logits = self.target_scoring_fn(
+    #         base_samples, targets, self.base_model
+    #     )
+
+    #     scores = self.forward(samples, targets, target_logits)
+        # if self.rearrange_on_predict and not self.use_gaussian:
+        #     scores = rearrange_quantile_fn(
+        #         scores, self.QUANTILE.to(scores.device).flatten()
+        #     )
+        # loss = self.loss_fn(scores, target_score, self.QUANTILE.to(scores.device))
+        # base_acc1, base_acc5 = per_sample_accuracy(target_logits, targets, topk=(1, 5))
+
+    #     if self.use_gaussian and not self.return_mean_logstd:
+    #         # use torch distribution to output quantiles
+    #         mu = scores[:, 0]
+    #         log_std = scores[:, 1]
+    #         std = torch.exp(log_std)
+    #
+    #         scores = mu.reshape([-1, 1]) + torch.exp(log_std).reshape(
+    #             [-1, 1]
+    #         ) * torch.erfinv(2 * self.QUANTILE.to(scores.device) - 1).reshape(
+    #             [1, -1]
+    #         ) * math.sqrt(
+    #             2
+    #         )
+    #         assert (
+    #             scores.ndim == 2
+    #             and scores.shape[0] == targets.shape[0]
+    #             and scores.shape[1] == self.QUANTILE.shape[1]
+    #         ), "inverse cdf quantiles have the wrong shape, got {} {} {}".format(
+    #             scores.shape, targets.shape, self.QUANTILE.size()
+    #         )
+
+    #     return  scores, target_score, loss, base_acc1, base_acc5, targets, # target_probs
+
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         samples, targets, base_samples = get_batch(batch)
 
+        # 1) your existing forward‐and‐loss logic
         target_score, target_logits = self.target_scoring_fn(
             base_samples, targets, self.base_model
         )
-
         scores = self.forward(samples, targets, target_logits)
+        # … your existing rearrange_on_predict / loss_fn / base_acc1/5 code …
         if self.rearrange_on_predict and not self.use_gaussian:
             scores = rearrange_quantile_fn(
                 scores, self.QUANTILE.to(scores.device).flatten()
@@ -423,26 +460,28 @@ class LightningQMIA(pl.LightningModule):
         loss = self.loss_fn(scores, target_score, self.QUANTILE.to(scores.device))
         base_acc1, base_acc5 = per_sample_accuracy(target_logits, targets, topk=(1, 5))
 
-        if self.use_gaussian and not self.return_mean_logstd:
-            # use torch distribution to output quantiles
-            mu = scores[:, 0]
+        # 2) NEW: compute p‐values
+        if self.use_gaussian:
+            # your mu/log_std branch
+            mu      = scores[:, 0]
             log_std = scores[:, 1]
-            scores = mu.reshape([-1, 1]) + torch.exp(log_std).reshape(
-                [-1, 1]
-            ) * torch.erfinv(2 * self.QUANTILE.to(scores.device) - 1).reshape(
-                [1, -1]
-            ) * math.sqrt(
-                2
-            )
-            assert (
-                scores.ndim == 2
-                and scores.shape[0] == targets.shape[0]
-                and scores.shape[1] == self.QUANTILE.shape[1]
-            ), "inverse cdf quantiles have the wrong shape, got {} {} {}".format(
-                scores.shape, targets.shape, self.QUANTILE.size()
-            )
+            std     = torch.exp(log_std)
+            dist    = torch.distributions.Normal(mu, std)
+            # p_values = dist.cdf(target_score)               # shape [batch]
+            z_scores = (target_score - mu) / std
+        else:
+            # non‐Gaussian: invert your Q predicted quantiles
+            # scores: [batch, Q],  self.QUANTILE: [1, Q] sorted ascending
+            Qs    = self.QUANTILE.to(scores.device).flatten()  # [Q]
+            # make sure 'scores' are sorted along dim=1
+            sorted_scores, _ = torch.sort(scores, dim=1)       # [batch, Q]
+            # for each i, find the smallest index j where sorted_scores[i,j] >= target_score[i]
+            idxs = torch.searchsorted(sorted_scores, target_score.unsqueeze(1))
+            idxs = idxs.clamp(0, sorted_scores.size(1)-1).squeeze(1)  # [batch]
+            p_values = Qs[idxs]                                  # [batch]
 
-        return scores, target_score, loss, base_acc1, base_acc5, targets
+        # 3) return it!
+        return scores, target_score, loss, base_acc1, base_acc5, targets, z_scores
 
     def configure_optimizers(self):
         optimizer = build_optimizer(

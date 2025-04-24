@@ -292,10 +292,10 @@ def main(args):
         test_targets_drop0
     ) = join_list_of_tuples(predict_results[1])
 
-    quantile_dropped = test_predicted_quantile_threshold_drop0[:, -4]
-    quantile_kept = test_predicted_quantile_threshold[:, -4]
-    quantile_dropped = quantile_dropped[test_targets_drop0 == 0]
-    quantile_kept = quantile_kept[test_targets == 0]
+    quantile_dropped = private_predicted_quantile_threshold_drop0[:, -4]
+    quantile_kept = private_predicted_quantile_threshold[:, -4]
+    quantile_dropped = quantile_dropped[private_targets_drop0 == 0]
+    quantile_kept = quantile_kept[private_targets == 0]
 
     # Plot the distributions of quantile thresholds for the two classes
     plt.figure(figsize=(15, 10))

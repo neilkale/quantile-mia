@@ -172,6 +172,9 @@ def argparser():
     parser.add_argument(
         "--dataset", type=str, default="cifar100", help="dataset {'cifar10', 'mnist',}"
     )
+    parser.add_argument(
+        "--base_dataset", type=str, default=None, help="base model dataset, None if same as `dataset` {'cifar10', 'mnist',}"
+    )
 
     parser.add_argument(
         "--model_root",
@@ -225,9 +228,16 @@ def argparser():
     np.random.seed(seed)
     random.seed(seed)
 
+    if args.base_dataset:
+        dset, split = args.dataset.split("/")
+        base_dset, base_split = args.base_dataset.split("/")
+        dset_dir = os.path.join(base_dset + "_" + dset, base_split + "_" + split)
+    else:
+        dset_dir = args.dataset
+
     args.root_checkpoint_path = os.path.join(
             args.model_root,
-            args.dataset,
+            dset_dir,
             "mia",
             args.model_name_prefix,
             args.architecture[1:] if args.architecture.startswith("/") else args.architecture, 
@@ -236,6 +246,9 @@ def argparser():
             "use_target_inputs_{}".format(args.use_target_inputs),
             "cls_drop_" + "".join(str(c) for c in args.cls_drop),
     )
+
+    if args.base_dataset is None:
+        args.base_dataset = args.dataset
 
     return args
 
