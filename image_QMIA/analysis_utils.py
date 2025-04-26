@@ -352,176 +352,118 @@ def plot_performance_curves(
     savefig_path:           str       = "results.png",
     plot_results:           bool      = True,
 ):
-    print("[plot_performance_curves] Starting...")
-    start_time = time.time()
     plt.ioff()
 
-    # ---- 1) Baseline marginal-quantile curves ----
-    print("[plot_performance_curves] Computing baseline curves...")
-    n_baseline = 1000
-    if not use_quantile_thresholds:
-        raise NotImplementedError("Only quantile baselines supported.")
-    baseline_q = (
-        np.sort(1.0 - np.logspace(-10, 0, n_baseline)[:-1])
-        if use_logscale else np.linspace(0, 1, n_baseline)[:-1]
-    )
-    print(f"  Baseline uses {len(baseline_q)} quantiles, logscale={use_logscale}")
+    # 1) Baseline marginal-quantile ROC
+    # -------------------------------
+    # choose your grid of FPRs
+    if use_quantile_thresholds:
+        q_levels = np.logspace(-3, 0, 1000) if use_logscale \
+                   else np.linspace(0,1,1000)
+        # we want thresholds so that FPR = q_levels
+        thr = np.quantile(public_target_scores, 1.0 - q_levels)
+        # compute rates at each threshold
+        prec_b, tpr_b, tnr_b = get_rates(
+            private_target_scores, public_target_scores,
+            thr[np.newaxis, :], thr[np.newaxis, :]
+        )
+        fpr_b = 1.0 - tnr_b
+    else:
+        # Fall back to true ROC on the raw public vs private scores
+        y_true  = np.concatenate([
+            np.ones_like(private_target_scores),
+            np.zeros_like(public_target_scores)
+        ])
+        y_score = np.concatenate([
+            private_target_scores,
+            public_target_scores
+        ])
+        fpr_b, tpr_b, _ = roc_curve(y_true, y_score,
+                                    drop_intermediate=False)
+        q_levels = fpr_b
 
-    baseline_thr = np.quantile(public_target_scores, baseline_q)
-    print("  Calculated baseline thresholds.")
-    baseline_pub_loss = pinball_loss_torch(
-        public_target_scores, baseline_thr.reshape(1, -1), baseline_q)
-    baseline_priv_loss = pinball_loss_torch(
-        private_target_scores, baseline_thr.reshape(1, -1), baseline_q)
-    print("  Computed baseline pinball losses.")
-    print(f"  Baseline step done in {time.time()-start_time:.2f}s")
-
-    baseline_prec, baseline_tpr, baseline_tnr = get_rates(
-        private_target_scores,
-        public_target_scores,
-        baseline_thr.reshape(1, -1),
-        baseline_thr.reshape(1, -1),
-    )
-    baseline_auc = np.abs(np.trapz(baseline_tpr, x=1 - baseline_tnr))
-    print(f"  Baseline AUC: {baseline_auc:.4f}")
-
-    # ---- 2) Model ROC: p-value or thresholds ----
-    print("[plot_performance_curves] Building model ROC...")
-    model_prec = model_tpr = model_tnr = model_auc = None
-    model_pub_loss = model_priv_loss = None
-
+    # 2) Model ROC (p-value or thresholds)
+    # -------------------------------
+    fpr_m = tpr_m = None
     if private_p_values is not None and public_p_values is not None:
-        print("  Using p-values branch (dense ROC)")
-        y_true  = np.concatenate([np.ones_like(private_p_values),
-                                  np.zeros_like(public_p_values)])
+        # p-value branch
+        y_true  = np.concatenate([
+            np.ones_like(private_p_values),
+            np.zeros_like(public_p_values)
+        ])
         y_score = np.concatenate([private_p_values, public_p_values])
-        fpr, tpr, thr = roc_curve(y_true, y_score, drop_intermediate=False)
-        print(f"  ROC curve generated with {len(thr)} thresholds")
-
-        model_tpr = tpr
-        model_tnr = 1 - fpr
-        model_auc = np.abs(np.trapz(model_tpr, x=1 - model_tnr))
-        P = len(private_p_values)
-        N = len(public_p_values)
-        model_prec = (tpr * P) / (tpr * P + fpr * N)
-        model_target_quantiles = thr[np.newaxis, :]
-        print(f"  Model AUC (p-values): {model_auc:.4f}")
+        fpr_m, tpr_m, _ = roc_curve(y_true, y_score,
+                                    drop_intermediate=False)
 
     elif (private_predicted_score_thresholds is not None
           and public_predicted_score_thresholds is not None
           and use_thresholds):
-        print("  Using thresholds branch")
-        model_target_quantiles = np.sort(model_target_quantiles)
-        private_predicted_score_thresholds = np.sort(
-            private_predicted_score_thresholds, axis=-1)
-        public_predicted_score_thresholds  = np.sort(
-            public_predicted_score_thresholds,  axis=-1)
-
-        model_prec, model_tpr, model_tnr = get_rates(
-            private_target_scores,
-            public_target_scores,
-            private_predicted_score_thresholds,
-            public_predicted_score_thresholds,
+        # threshold branch
+        thr_priv = np.sort(private_predicted_score_thresholds, axis=-1)
+        thr_pub  = np.sort(public_predicted_score_thresholds,  axis=-1)
+        _, tpr_m, tnr_m = get_rates(
+            private_target_scores, public_target_scores,
+            thr_priv, thr_pub
         )
-        model_pub_loss = pinball_loss_np(
-            public_target_scores,
-            public_predicted_score_thresholds,
-            model_target_quantiles,
-        )
-        model_priv_loss = pinball_loss_np(
-            private_target_scores,
-            private_predicted_score_thresholds,
-            model_target_quantiles,
-        )
-        model_auc = np.abs(np.trapz(model_tpr, x=1 - model_tnr))
-        print(f"  Model AUC (thresholds): {model_auc:.4f}")
+        fpr_m = 1.0 - tnr_m
 
-    else:
-        print("  No model predictions provided; skipping model ROC.")
-    print(f"  Model ROC step done in {time.time()-start_time:.2f}s")
-
-    # ---- 3) Plot ROC ----
-    print("[plot_performance_curves] Plotting ROC...")
-    fig, ax = plt.subplots(figsize=(6,6))
+    # 3) Plot
+    # -------------------------------
+    fig, ax = plt.subplots(figsize=(6, 6))
     ax.set_title("ROC", fontsize=fontsize)
     ax.set_xlabel("False positive rate")
     ax.set_ylabel("True positive rate")
-    ax.set_xlim(1e-3, 1)
-    ax.set_ylim(1e-3, 1)
+    ax.set_xlim(1e-4, 1)
+    ax.set_ylim(1e-4, 1)
 
-    ax.plot(1 - baseline_tnr, baseline_tpr,
-            "-", label=f"Marginal Quantiles (AUC={baseline_auc:.3f})")
-    if model_tpr is not None:
-        ax.plot(1 - model_tnr, model_tpr,
-                "-", label=f"{model_name} (AUC={model_auc:.3f})")
-    ax.legend()
+    ax.plot(fpr_b, tpr_b, "-", label="Marginal Quantiles")
+    if fpr_m is not None:
+        ax.plot(fpr_m, tpr_m, "-", label=model_name)
+
     if use_logscale:
         ax.set_xscale("log")
         ax.set_yscale("log")
+
+    # 4) Annotate exact TPR @ 1% and 0.1% FPR
+    # -------------------------------
+    for thresh, pct in [(0.01, "1%"), (0.001, "0.1%")]:
+        # baseline
+        tpr_b_at = np.interp(thresh, fpr_b, tpr_b)
+        ax.text(0.02, 0.9 - 0.05*(pct=="0.1%"),
+                f"Baseline TPR @ {pct} FPR: {tpr_b_at*100:.1f}%",
+                transform=ax.transAxes,
+                fontsize=fontsize-2,
+                color="C0")
+
+        # model
+        if fpr_m is not None:
+            tpr_m_at = np.interp(thresh, fpr_m, tpr_m)
+            ax.text(0.02, 0.8 - 0.05*(pct=="0.1%"),
+                    f"{model_name} TPR @ {pct} FPR: {tpr_m_at*100:.1f}%",
+                    transform=ax.transAxes,
+                    fontsize=fontsize-2,
+                    color="C1")
+
+    ax.legend(fontsize=fontsize-2)
     plt.tight_layout()
 
+    # 5) Save and show
+    # -------------------------------
     if savefig_path:
-        roc_path = os.path.join(os.path.dirname(savefig_path), "roc.png")
-        print(f"  Saving ROC plot to {roc_path}")
-        os.makedirs(os.path.dirname(roc_path), exist_ok=True)
-        plt.savefig(roc_path, dpi=300)
+        d = os.path.dirname(savefig_path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        fig.savefig(savefig_path, dpi=300)
+        print(f"Saved ROC plot to {savefig_path}")
+
     if plot_results:
         plt.show()
-    print(f"  ROC plot done in {time.time()-start_time:.2f}s")
 
-    # ---- 4) Pinball loss (public) ----
-    print("[plot_performance_curves] Plotting Pinball loss...")
-    fig, ax = plt.subplots(figsize=(6,6))
-    ax.set_title("Pinball loss", fontsize=fontsize)
-    ax.set_xlabel("Significance level")
-    ax.set_ylabel("Pinball loss")
-
-    ax.plot(1 - baseline_q, baseline_pub_loss, "x-",
-            label="Marginal Quantiles (Public)")
-    if model_pub_loss is not None:
-        ax.plot(1 - model_target_quantiles.flatten(), model_pub_loss, "x-",
-                label=f"{model_name} (Public)")
-    ax.set_xscale("log")
-    ax.legend()
-    plt.tight_layout()
-
-    if savefig_path:
-        pinball_path = os.path.join(os.path.dirname(savefig_path), "pinball.png")
-        print(f"  Saving Pinball plot to {pinball_path}")
-        os.makedirs(os.path.dirname(pinball_path), exist_ok=True)
-        plt.savefig(pinball_path, dpi=300)
-    if plot_results:
-        plt.show()
-    print(f"  Pinball plot done in {time.time()-start_time:.2f}s")
-
-    # ---- 5) Save results ----
-    print("[plot_performance_curves] Saving numeric results...")
-    def make_dict(prec, tpr, tnr, auc, pub_loss, priv_loss):
-        idx1  = np.argmin(np.abs(tnr - 0.99))
-        idx01 = np.argmin(np.abs(tnr - 0.999))
-        print(f"  Precision @1% FPR: {prec[idx1]*100:.2f}%  TPR: {tpr[idx1]*100:.2f}%")
-        print(f"  Precision @0.1% FPR: {prec[idx01]*100:.2f}%  TPR: {tpr[idx01]*100:.2f}%")
-        return {"precision": prec, "tpr": tpr, "tnr": tnr,
-                "auc": auc, "public_loss": pub_loss, "private_loss": priv_loss}
-    
-    results = {"baseline": make_dict(
-                   baseline_prec, baseline_tpr, baseline_tnr,
-                   baseline_auc, baseline_pub_loss, baseline_priv_loss)}
-
-    if model_tpr is not None:
-        results["model"] = make_dict(
-            model_prec, model_tpr, model_tnr,
-            model_auc, model_pub_loss, model_priv_loss
-        )
-
-    # if savefig_path:
-    #     pkl = os.path.splitext(savefig_path)[0] + ".pkl"
-    #     with open(pkl, "wb") as f:
-    #         pickle.dump(results, f)
-    #     print("saved metrics to", pkl)
-
-    return baseline_auc, model_auc
-
+    # 6) Return AUCs
+    # -------------------------------
+    auc_b = np.abs(np.trapz(tpr_b, x=fpr_b))
+    auc_m = np.abs(np.trapz(tpr_m, x=fpr_m)) if fpr_m is not None else None
+    return auc_b, auc_m
 
 # def plot_performance_curves_id_ood(
 #     private_target_scores,
@@ -1114,8 +1056,8 @@ def plot_performance_curves_id_ood(
         ax.set_title(f"{label} ROC", fontsize=fontsize)
         ax.set_xlabel("False positive rate")
         ax.set_ylabel("True positive rate")
-        ax.set_xlim(1e-3, 1)
-        ax.set_ylim(1e-3, 1)
+        ax.set_xlim(1e-4, 1)
+        ax.set_ylim(1e-4, 1)
 
         ax.plot(fpr_b, tpr_b, "-", label="Marginal Quantiles")
         if fpr_m is not None:
@@ -1130,9 +1072,9 @@ def plot_performance_curves_id_ood(
             # baseline
             idx_b = np.argmin(np.abs(fpr_b - thresh))
             tpr_b_at = tpr_b[idx_b]
-            if tpr_b_at == 0:
-                tpr_b_at = np.interp(thresh, fpr_b, tpr_b)
-            ax.text(0.02, 0.9 - 0.05*(0 if pct=="1%" else 1),
+            # if tpr_b_at == 0:
+            # tpr_b_at = np.interp(thresh, fpr_b, tpr_b)
+            ax.text(0.02, 0.8 - 0.05*(0 if pct=="1%" else 1),
                     f"Baseline TPR @ {pct} FPR: {tpr_b_at*100:.1f}%",
                     transform=ax.transAxes,
                     fontsize=fontsize-2,
@@ -1142,9 +1084,9 @@ def plot_performance_curves_id_ood(
             if fpr_m is not None:
                 idx_m = np.argmin(np.abs(fpr_m - thresh))
                 tpr_m_at = tpr_m[idx_m]
-                if tpr_m_at == 0:
-                    tpr_m_at = np.interp(thresh, fpr_m, tpr_m)
-                ax.text(0.02, 0.8 - 0.05*(0 if pct=="1%" else 1),
+                # if tpr_m_at == 0:
+                tpr_m_at = np.interp(thresh, fpr_m, tpr_m)
+                ax.text(0.02, 0.7 - 0.05*(0 if pct=="1%" else 1),
                         f"{model_name} TPR @ {pct} FPR: {tpr_m_at*100:.1f}%",
                         transform=ax.transAxes,
                         fontsize=fontsize-2,
