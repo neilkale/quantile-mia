@@ -86,10 +86,15 @@ def plot_model(
             shutil.rmtree(prediction_output_dir, ignore_errors=True)
             os.makedirs(prediction_output_dir, exist_ok=True)
 
+        if (args.base_dataset != args.dataset):
+            dataset_mode="eval_dataset_shift"
+        else:
+            dataset_mode="eval"
+
         # 4) Build data+model+trainer
         datamodule = CustomDataModule(
             dataset_name=args.base_dataset,
-            mode="eval",
+            mode=dataset_mode,
             num_workers=7,
             image_size=args.image_size,
             batch_size=args.batch_size,
@@ -184,6 +189,7 @@ def plot_model(
         private_base_acc5,
         private_targets,
         private_p_values,
+        _,
     ) = private_fields
 
     (
@@ -194,6 +200,7 @@ def plot_model(
         test_base_acc5,
         test_targets,
         test_p_values,
+        _,
     ) = test_fields
 
     print(f"[plot_model] Final tensor shapes:\n"
@@ -282,7 +289,7 @@ def plot_model(
     else:
         print(
             "Model accuracy on training set {:.2f}%".format(
-                np.mean(private_base_acc1.numpy())
+                np.mean(private_base_acc1.numpy())*100
             )
         )
 
@@ -293,7 +300,10 @@ def plot_model(
         else:
             dset_dir = args.dataset
 
-        print("Model accuracy on test set  {:.2f}%".format(np.mean(test_base_acc1.numpy())))
+        print("Model accuracy on test set  {:.2f}%".format(
+            np.mean(test_base_acc1.numpy())*100
+            )
+        )
         plot_result = plot_performance_curves(
             np.asarray(private_target_score),
             np.asarray(test_target_score),

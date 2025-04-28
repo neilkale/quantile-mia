@@ -32,6 +32,37 @@ from torchvision import datasets as tv_datasets
 from torchvision import transforms
 from tqdm import tqdm
 
+from pathlib import Path
+import multiprocessing as mp
+from tqdm import tqdm
+
+def download_imagenet_folder(
+    hf_name: str = "evanarlian/imagenet_1k_resized_256",
+    data_root: str = "./data",
+):
+    data_root = Path(data_root)
+    dataset_name = hf_name.split("/")[-1]
+
+    # 1) Grab the class‐name mapping from the train split:
+    train_ds = load_dataset(hf_name, split="train", streaming=True)
+    class_names = train_ds.features["label"].names
+
+    # 2) For each split, stream and write:
+    for split in ("train", "val", "test"):
+        ds = load_dataset(hf_name, split=split, streaming=True)
+        out_base = data_root / dataset_name / split
+
+        # You can pass total=len(...) if you really want a pbar length.
+        pbar = tqdm(ds, desc=f"Saving {split}")
+        for i, ex in enumerate(pbar):
+            img = ex["image"]        # a PIL.Image
+            lbl = ex["label"]        # integer 0…999
+            cname = class_names[lbl]
+            out_dir = out_base / cname
+            out_dir.mkdir(parents=True, exist_ok=True)
+            img.save(out_dir / f"{i:08d}.jpeg")
+
+    print("✅ All splits saved under", data_root / dataset_name)
 
 @contextlib.contextmanager
 def temp_seed(seed):
@@ -651,7 +682,6 @@ def get_imagenet(
 
     return private_dataset, public_dataset, test_dataset, transform_dict, num_classes
 
-
 def huggingface_to_imagefolder_map(
     local_dataset_name, dataset_name, overwrite=True, splits=None, data_root="./data"
 ):
@@ -881,7 +911,24 @@ class CustomDataModule(pl.LightningDataModule):
                 self.val_dataset = set_transform(
                     self.val_dataset, transform_dict["vanilla"]
                 )
-
+        elif self.mode == "eval_dataset_shift":
+            self.train_dataset = dataset_dict[
+                "public"
+            ]  # large dataset of samples that were not used to train the original network
+            self.test_dataset = dataset_dict["private"]  # This was used to train the nw
+            self.val_dataset = dataset_dict[
+                "public" # MODIFIED FROM "test" TO "public" since not used for MIA training.
+            ]  # test samples to test generalization of score model
+            if "vanilla" in transform_dict:
+                self.train_dataset = set_transform(
+                    self.train_dataset, transform_dict["vanilla"]
+                )
+                self.test_dataset = set_transform(
+                    self.test_dataset, transform_dict["vanilla"]
+                )
+                self.val_dataset = set_transform(
+                    self.val_dataset, transform_dict["vanilla"]
+                )
         else:
             self.train_dataset = dataset_dict["private"]
             self.test_dataset = dataset_dict["public"]

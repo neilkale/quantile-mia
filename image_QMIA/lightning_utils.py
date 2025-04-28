@@ -481,7 +481,7 @@ class LightningQMIA(pl.LightningModule):
             p_values = Qs[idxs]                                  # [batch]
 
         # 3) return it!
-        return scores, target_score, loss, base_acc1, base_acc5, targets, z_scores
+        return scores, target_score, loss, base_acc1, base_acc5, targets, z_scores, target_logits
 
     def configure_optimizers(self):
         optimizer = build_optimizer(

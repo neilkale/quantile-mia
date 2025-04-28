@@ -104,7 +104,6 @@ def argparser():
 
     return args
 
-
 def train_model(config, args, callbacks=None, rerun=False):
     callbacks = callbacks or []
     save_handle = "model.pickle"

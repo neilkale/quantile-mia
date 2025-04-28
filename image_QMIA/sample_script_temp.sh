@@ -27,7 +27,7 @@ QMIA_ARCHITECTURE=facebook/convnext-large-224-22k-1k #convnext-tiny
 # python plot_results.py         --dataset=$DATASET        --epochs=10   --batch_size=32  --image_size=224 --use_hinge_score=True --use_target_label=False --model_name_prefix=gaussian_qmia --base_model_name_prefix=example   --architecture=$QMIA_ARCHITECTURE --base_architecture=$BASE_ARCHITECTURE  --tune_batch_size=True --use_gaussian=True --use_target_inputs=False --model_root=$MODEL_DIR --data_root=$DATA_DIR --cls_drop $i --n_quantile 1000 --low_quantile -16
 # done
 
-python plot_results.py         --dataset=$DATASET      --epochs=10   --batch_size=32  --image_size=224 --use_hinge_score=True --use_target_label=False --model_name_prefix=gaussian_qmia --base_model_name_prefix=example   --architecture=$QMIA_ARCHITECTURE --base_architecture=$BASE_ARCHITECTURE  --tune_batch_size=True --use_gaussian=True --use_target_inputs=False --model_root=$MODEL_DIR --data_root=$DATA_DIR --cls_drop 2 --n_quantile 1000 --low_quantile -16
+# python plot_results.py         --dataset=$DATASET      --epochs=10   --batch_size=32  --image_size=224 --use_hinge_score=True --use_target_label=False --model_name_prefix=gaussian_qmia --base_model_name_prefix=example   --architecture=$QMIA_ARCHITECTURE --base_architecture=$BASE_ARCHITECTURE  --tune_batch_size=True --use_gaussian=True --use_target_inputs=False --model_root=$MODEL_DIR --data_root=$DATA_DIR --cls_drop 2 --n_quantile 1000 --low_quantile -16
 
 ####################
 
