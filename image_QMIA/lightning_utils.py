@@ -31,6 +31,7 @@ from train_utils import (
     pinball_loss_fn,
     rearrange_quantile_fn,
     top_two_margin_scoring_fn,
+    margin_ratio_fn,
 )
 
 # base utilities

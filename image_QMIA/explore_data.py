@@ -409,7 +409,8 @@ def get_cifar100_predictions_from_inet_mia_model():
                 data_root="./data/",
             )
 
-    dir = "./models/imagenet-1k_cifar100/0_16_0_16/mia/gaussian_qmia/facebook/convnext-large-224-22k-1k/use_hinge_True/use_target_label_False/use_target_inputs_False/cls_drop_/"
+    # dir = "./models/imagenet-1k_cifar100/0_16_0_16/mia/gaussian_qmia/facebook/convnext-large-224-22k-1k/use_hinge_True/use_target_label_False/use_target_inputs_False/cls_drop_/"
+    dir = "./models/cinic10_cifar100/0_16_0_16/mia/gaussian_qmia/facebook/convnext-large-224-22k-1k/use_hinge_True/use_target_label_False/use_target_inputs_False/cls_drop_/"
     lightning_model = LightningQMIA.load_from_checkpoint(os.path.join(dir, "best_val_loss.ckpt"))
 
     prediction_output_dir = os.path.join(
