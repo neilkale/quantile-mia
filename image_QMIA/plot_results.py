@@ -184,6 +184,7 @@ def plot_model(
         private_base_acc5,
         private_targets,
         private_p_values,
+        _
     ) = private_fields
 
     (
@@ -194,6 +195,7 @@ def plot_model(
         test_base_acc5,
         test_targets,
         test_p_values,
+        _
     ) = test_fields
 
     print(f"[plot_model] Final tensor shapes:\n"
@@ -334,6 +336,6 @@ if __name__ == "__main__":
         args,
         dst_checkpoint_path,
         "best",
-        recompute_predictions=True,
+        recompute_predictions=False,
         return_mean_logstd=args.return_mean_logstd,
     )
