@@ -329,10 +329,10 @@ def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="publi
 
     # Plot ROC curve
     plt.figure()
-    plt.plot(fpr, tpr, color='blue', label=f'ROC curve (area = {roc_auc:.2f})')
-    plt.plot([1e-5, 1], [1e-5, 1], color='red', linestyle='--')
-    plt.xlim([1e-5, 1.0])
-    plt.ylim([1e-5, 1.0])
+    plt.plot(fpr, tpr, color='steelblue', label=f'ROC curve (area = {roc_auc:.2f})')
+    plt.plot([1e-4, 1], [1e-4, 1], color='gray', linestyle='--')
+    plt.xlim([1e-4, 1.0])
+    plt.ylim([1e-4, 1.0])
     plt.xscale('log')
     plt.yscale('log')
     plt.xlabel('False Positive Rate')
@@ -341,6 +341,183 @@ def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="publi
     plt.legend(loc='lower right')
 
     plt.savefig(os.path.join(args.attack_plots_path, "roc_curve.png"))
+    plt.close()
+
+def plot_scores_per_class(preds, label="private"):
+    """
+    Plot the scores per class for the given predictions.
+    """
+    pred_scores, target_scores, logits, targets, loss = preds
+    pred_scores = pred_scores[:,0].cpu().numpy()
+    target_scores = target_scores.cpu().numpy()
+    targets = targets.cpu().numpy()
+
+    # Get unique classes
+    unique_classes = np.unique(targets)
+
+    # Create a figure for the plot
+    plt.figure(figsize=(10, 6))
+
+    # Plot CDF for each class
+    for cls in unique_classes:
+        cls_mask = (targets == cls)
+        # Get scores for this class
+        scores = pred_scores[cls_mask]
+        # Sort scores
+        scores_sorted = np.sort(scores)
+        # Create CDF (y-axis values from 0 to 1)
+        cdf = np.arange(1, len(scores_sorted) + 1) / len(scores_sorted)
+        # Plot CDF
+        plt.plot(scores_sorted, cdf, label=f'Class {cls}')
+
+    plt.xlabel('Score')
+    plt.ylabel('Cumulative Probability')
+    plt.title(f'CDF of Predicted Scores per Class - {label}')
+    plt.xscale('log')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.savefig(os.path.join(args.attack_plots_path, f"cdf_pred_scores_per_class_{label}.png"))
+    plt.close()
+
+    # Create a figure for the plot
+    plt.figure(figsize=(10, 6))
+
+    # Plot CDF for each class
+    for cls in unique_classes:
+        cls_mask = (targets == cls)
+        # Get scores for this class
+        scores = target_scores[cls_mask]
+        # Sort scores
+        scores_sorted = np.sort(scores)
+        # Create CDF (y-axis values from 0 to 1)
+        cdf = np.arange(1, len(scores_sorted) + 1) / len(scores_sorted)
+        # Plot CDF
+        plt.plot(scores_sorted, cdf, label=f'Class {cls}')
+
+    plt.xlabel('Score')
+    plt.ylabel('Cumulative Probability')
+    plt.title(f'CDF of Target Scores per Class - {label}')
+    plt.legend()
+    plt.xscale('log')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.savefig(os.path.join(args.attack_plots_path, f"cdf_target_scores_per_class_{label}.png"))
+    plt.close()
+
+def plot_cdf_gap(test_preds, val_preds):
+    # Get target scores and class labels for test and validation sets
+    test_targets = test_preds[1].cpu().numpy().flatten()
+    test_labels = test_preds[3].cpu().numpy().flatten()
+    val_targets = val_preds[1].cpu().numpy().flatten()
+    val_labels = val_preds[3].cpu().numpy().flatten()
+
+    # Get union of classes from test and validation sets
+    unique_classes = np.union1d(np.unique(test_labels), np.unique(val_labels))
+
+    plt.figure(figsize=(10, 6))
+    for cls in unique_classes:
+        # Filter target scores for the current class
+        test_class_targets = test_targets[test_labels == cls]
+        val_class_targets = val_targets[val_labels == cls]
+
+        if len(test_class_targets) == 0 or len(val_class_targets) == 0:
+            continue
+
+        # Sort the scores
+        test_sorted = np.sort(test_class_targets)
+        val_sorted = np.sort(val_class_targets)
+
+        # Create a common grid for x-axis between the min and max of both arrays
+        xmin = min(test_sorted[0], val_sorted[0])
+        xmax = max(test_sorted[-1], val_sorted[-1])
+        x_grid = np.linspace(xmin, xmax, 1000)
+
+        # Compute empirical CDF for test and validation targets
+        test_cdf = np.searchsorted(test_sorted, x_grid, side='right') / len(test_sorted)
+        val_cdf = np.searchsorted(val_sorted, x_grid, side='right') / len(val_sorted)
+
+        # Compute the gap between the two CDFs
+        cdf_gap = test_cdf - val_cdf
+
+        # Plot the CDF gap for this class on the same plot
+        plt.plot(x_grid, cdf_gap, label=f'Class {int(cls)}')
+
+    plt.xlabel('Target Score')
+    plt.ylabel('CDF Gap (Private - Public)')
+    plt.title('Difference between CDF of Target Scores (Private vs. Public)')
+    plt.legend(title="Classes")
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.savefig(os.path.join(args.attack_plots_path, "cdf_gap_all.png"))
+    plt.close()
+
+def plot_scores_violin_per_class(preds, label="private"):    
+    pred_scores, target_scores, logits, targets, loss = preds
+    pred_scores = pred_scores[:,0].cpu().numpy()
+    target_scores = target_scores.cpu().numpy()
+    targets = targets.cpu().numpy()
+
+    # Get unique classes
+    unique_classes = np.unique(targets)
+
+    # Create a figure for the plot
+    plt.figure(figsize=(10, 6))
+
+    # Prepare data for violin plot - ensure 1D arrays
+    data_to_plot = [np.ravel(pred_scores[targets == cls]) for cls in unique_classes]
+    
+    # Create violin plot
+    violin_parts = plt.violinplot(data_to_plot, positions=range(len(unique_classes)), 
+                                  showmeans=True, showmedians=True)
+    
+    # Customize violin plot appearance
+    for pc in violin_parts['bodies']:
+        pc.set_facecolor('#3274A1')
+        pc.set_edgecolor('black')
+        pc.set_alpha(0.7)
+    
+    # Customize mean and median lines
+    violin_parts['cmeans'].set_color('red')
+    violin_parts['cmedians'].set_color('black')
+    
+    # Set x-axis ticks and labels
+    plt.xticks(range(len(unique_classes)), [f'Class {cls}' for cls in unique_classes])
+    
+    plt.xlabel('Class')
+    plt.ylabel('Predicted Scores')
+    plt.title(f'Violin Plot of Predicted Scores per Class - {label}')
+    plt.grid(True, linestyle='--', alpha=0.7, axis='y')
+    plt.tight_layout()
+    plt.savefig(os.path.join(args.attack_plots_path, f"violin_pred_scores_per_class_{label}.png"))
+    plt.close()
+
+    # Create a figure for target scores
+    plt.figure(figsize=(10, 6))
+
+    # Prepare data for violin plot - ensure 1D arrays
+    data_to_plot = [np.ravel(target_scores[targets == cls]) for cls in unique_classes]
+    
+    # Create violin plot
+    violin_parts = plt.violinplot(data_to_plot, positions=range(len(unique_classes)), 
+                                  showmeans=True, showmedians=True)
+    
+    # Customize violin plot appearance
+    for pc in violin_parts['bodies']:
+        pc.set_facecolor('#E1812C')
+        pc.set_edgecolor('black')
+        pc.set_alpha(0.7)
+    
+    # Customize mean and median lines
+    violin_parts['cmeans'].set_color('red')
+    violin_parts['cmedians'].set_color('black')
+    
+    # Set x-axis ticks and labels
+    plt.xticks(range(len(unique_classes)), [f'Class {cls}' for cls in unique_classes])
+    
+    plt.xlabel('Class')
+    plt.ylabel('Target Scores')
+    plt.title(f'Violin Plot of Target Scores per Class - {label}')
+    plt.grid(True, linestyle='--', alpha=0.7, axis='y')
+    plt.tight_layout()
+    plt.savefig(os.path.join(args.attack_plots_path, f"violin_target_scores_per_class_{label}.png"))
     plt.close()
 
 if __name__ == "__main__":
@@ -361,5 +538,13 @@ if __name__ == "__main__":
     print("Plotting ROC curve...")
     plot_roc_curve(test_preds, val_preds)
     print("ROC curve plotted and saved.")
+
+    print("Plotting scores per class...")
+    plot_scores_per_class(test_preds, label="private")
+    plot_scores_per_class(val_preds, label="public")
+    plot_scores_violin_per_class(test_preds, label="private")
+    plot_scores_violin_per_class(val_preds, label="public")
+    plot_cdf_gap(test_preds, val_preds)
+    print("Scores per class plotted and saved.")
 
     

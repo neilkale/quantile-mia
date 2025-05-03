@@ -1,0 +1,1 @@
+first pass at editting the code. was a bit messy and at some point things stopped working oops.

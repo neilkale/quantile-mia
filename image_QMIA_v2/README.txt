@@ -1,0 +1,1 @@
+second pass at editting the code. this is the final draft hopefully (once I get it properly working) but there are some bugs rn and results are not so good, so moving back to the original.

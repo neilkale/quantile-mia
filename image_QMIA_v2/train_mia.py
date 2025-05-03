@@ -47,7 +47,7 @@ def argparser():
     parser.add_argument(
         "--lr",
         type=float,
-        default=3e-4,
+        default=1e-4,
         help="learning rate",   
     )
     parser.add_argument(
@@ -129,6 +129,12 @@ def argparser():
         help="debug mode, set to True to run on CPU and with fewer epochs",
     )
 
+    parser.add_argument(
+        "--rerun",
+        action="store_true",
+        help="rerun training even if checkpoint exists",
+    )
+
     args = parser.parse_args()
     seed = args.seed
     torch.manual_seed(seed)
@@ -173,9 +179,7 @@ def argparser():
 
     return args
 
-if __name__ == "__main__":
-    args = argparser()
-
+def train_model(args):
     start = time.time()
 
     metric = "ptl/val_loss"
@@ -236,4 +240,18 @@ if __name__ == "__main__":
 
     print("Training finished in {:.2f} seconds".format(time.time() - start))
     print("Best checkpoint saved at {}".format(checkpoint_callback.best_model_path))
+
+if __name__ == "__main__":
+    args = argparser()
+
+    if (
+        os.path.exists(os.path.join(args.attack_checkpoint_path, "best_val_loss.ckpt"))
+        and not args.rerun
+    ):
+        print(f"Checkpoint already exists at {args.attack_checkpoint_path}. Skipping attack model training.")
+    else:
+        os.makedirs(args.attack_checkpoint_path, exist_ok=True)
+        train_model(args)
+
+        
 
