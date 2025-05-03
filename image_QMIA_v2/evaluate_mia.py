@@ -1,0 +1,365 @@
+import os
+import argparse
+import shutil
+import torch
+import numpy as np
+import random
+from lightning_utils import LightningQMIA, CustomWriter
+from data_utils import CustomDataModule
+import pytorch_lightning as pl
+import glob
+
+def argparser():
+    parser = argparse.ArgumentParser(description="QMIA attack trainer")
+    parser.add_argument("--seed", type=int, default=0, help="random seed")
+
+    parser.add_argument(
+        "--batch_size", type=int, default=16, help="batch size"
+    )
+    parser.add_argument(
+        "--image_size",
+        type=int,
+        default=32,
+        help="image input size, set to -1 to use dataset's default value",
+    )
+
+    parser.add_argument(
+        "--architecture",
+        type=str,
+        default="facebook/convnext-tiny-224",
+        help="Attack Model Type",
+    )
+    parser.add_argument(
+        "--base_architecture",
+        type=str,
+        default="resnet-18",
+        help="Base Model Type",
+    )
+    parser.add_argument(
+        "--score_fn",
+        type=str,
+        default="top_two_margin",
+        help="score function (true_logit_margin, top_two_margin)",
+    )
+    parser.add_argument(
+        "--loss_fn",
+        type=str,
+        default="gaussian",
+        help="loss function (gaussian, pinball)",
+    )
+
+    parser.add_argument(
+        "--base_model_dataset",
+        type=str,
+        default="cinic10/0_16",
+        help="dataset (i.e. cinic10/0_16, imagenet/0_16, cifar100/0_16)",
+    )
+    parser.add_argument(
+        "--attack_dataset",
+        type=str,
+        default=None,
+        help="dataset (i.e. cinic10/0_16, imagenet/0_16, cifar100/0_16), if None, use the same as base_model_dataset",
+    )
+
+    parser.add_argument(
+        "--model_root",
+        type=str,
+        default="./models/",
+    )
+    parser.add_argument(
+        "--data_root",
+        type=str,
+        default="./data/",
+    )
+    parser.add_argument(
+        "--results_root",
+        type=str,
+        default="./outputs/",
+    )
+    parser.add_argument(
+        "--data_mode",
+        type=str,
+        default="eval",
+        help="data mode (either base, mia, or eval)",
+    )
+
+    parser.add_argument(
+        "--cls_drop",
+        type=int,
+        nargs="*",
+        default=[],
+        help="drop classes from the dataset, e.g. --cls_drop 1 3 7",
+    )
+
+    parser.add_argument(
+        "--DEBUG",
+        action="store_true",
+        help="debug mode, set to True to run on CPU and with fewer epochs",
+    )
+
+    parser.add_argument(
+        "--rerun", action="store_true", help="whether to rerun the evaluation"
+    )
+
+    args = parser.parse_args()
+    seed = args.seed
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    if args.attack_dataset is None:
+        args.attack_dataset = args.base_model_dataset
+
+    cls_drop_str = (
+        "".join(str(c) for c in args.cls_drop)
+        if args.cls_drop
+        else "none"
+    )
+    
+    args.attack_checkpoint_path = os.path.join(
+        args.model_root,
+        "mia",
+        "base_" + args.base_model_dataset,
+        args.base_architecture,
+        "attack_" + args.attack_dataset,
+        args.architecture,
+        "score_fn_" + args.score_fn,
+        "loss_fn_" + args.loss_fn,
+        "cls_drop_" + cls_drop_str,
+    )
+
+    args.base_checkpoint_path = os.path.join(
+        args.model_root,
+        "base",
+        args.base_model_dataset,
+        args.base_architecture
+    )
+
+    args.attack_results_path = os.path.join(
+        args.attack_checkpoint_path,
+        "predictions",
+    )
+
+    args.attack_plots_path = os.path.join(
+        args.attack_results_path,
+        "plots",
+    )
+
+    if "cifar100" in args.base_model_dataset.lower():
+        args.num_base_classes = 100
+    elif "imagenet-1k" in args.base_model_dataset.lower():
+        args.num_base_classes = 1000
+    else:
+        args.num_base_classes = 10
+
+    return args
+
+def aggregate_predictions(results_path):
+    """
+    Aggregate prediction files in results_path into two files:
+    - predictions_test.pt: contains test set predictions
+    - predictions_val.pt: contains validation set predictions
+    
+    Each file will contain a list of 5 elements:
+    [pred_scores, target_scores, logits, targets, loss]
+    where each element is a tensor containing all data for that quantity.
+    """
+    print(f"Aggregating predictions from {results_path}")
+    
+    # Get list of all prediction files
+    prediction_files = sorted(glob.glob(os.path.join(results_path, "predictions_*.pt")))
+    if not prediction_files:
+        print(f"No prediction files found in {results_path}")
+        return
+    
+    print(f"Found {len(prediction_files)} prediction files")
+    
+    # Initialize lists to collect results
+    test_predictions = [[] for _ in range(5)]  # 5 elements from predict_step
+    val_predictions = [[] for _ in range(5)]   # 5 elements from predict_step
+    
+    # Load and aggregate predictions
+    for pred_file in prediction_files:
+        print(f"Processing {os.path.basename(pred_file)}")
+        batch_preds = torch.load(pred_file)
+        
+        # First element is test, second is val
+        test_batch = batch_preds[0]
+        val_batch = batch_preds[1]
+        
+        # For each batch in test_batch, extract the 5 elements
+        for batch in test_batch:
+            for i in range(5):
+                test_predictions[i].append(batch[i])
+        
+        # For each batch in val_batch, extract the 5 elements
+        for batch in val_batch:
+            for i in range(5):
+                val_predictions[i].append(batch[i])
+    
+    # Concatenate tensors for each element
+    test_result = []
+    val_result = []
+    
+    for i in range(5):
+        if test_predictions[i]:  # Check if list is not empty
+            # Concatenate along the first dimension (batch)
+            test_result.append(torch.cat(test_predictions[i], dim=0))
+        else:
+            test_result.append(torch.tensor([]))
+            
+        if val_predictions[i]:  # Check if list is not empty
+            # Concatenate along the first dimension (batch)
+            val_result.append(torch.cat(val_predictions[i], dim=0))
+        else:
+            val_result.append(torch.tensor([]))
+    
+    # Save aggregated results
+    torch.save(test_result, os.path.join(results_path, "predictions_test.pt"))
+    torch.save(val_result, os.path.join(results_path, "predictions_val.pt"))
+    
+    print(f"Saved aggregated results to {results_path}/predictions_test.pt and {results_path}/predictions_val.pt")
+    
+    # Print some stats
+    print("\nTest predictions:")
+    for i, name in enumerate(["pred_scores", "target_scores", "logits", "targets", "loss"]):
+        if len(test_result[i]) > 0:
+            print(f"  {name}: shape {test_result[i].shape}")
+    
+    print("\nValidation predictions:")
+    for i, name in enumerate(["pred_scores", "target_scores", "logits", "targets", "loss"]):
+        if len(val_result[i]) > 0:
+            print(f"  {name}: shape {val_result[i].shape}")
+
+    print(f"\nRemoving {len(prediction_files)} original prediction files...")
+    for pred_file in prediction_files:
+        # Only remove files that match the pattern predictions_*.pt but not the aggregated files
+        if os.path.basename(pred_file) not in ["predictions_test.pt", "predictions_val.pt"]:
+            os.remove(pred_file)
+    print("Original prediction files removed")
+
+def evaluate_mia(args, rerun=False):
+    if os.path.exists(args.attack_results_path) and not rerun:
+        print(f"Results already exist at {args.attack_results_path}.")
+        return
+    else:
+        # Remove the existing results directory if it exists
+        if os.path.exists(args.attack_results_path):
+            print(f"Removing existing results directory at {args.attack_results_path}.")
+            shutil.rmtree(args.attack_results_path)
+        # Create a new results directory
+        print(f"Creating results directory at {args.attack_results_path}.")
+        os.makedirs(args.attack_results_path, exist_ok=True)
+    
+    # Create lightning model
+    
+    lightning_model = LightningQMIA.load_from_checkpoint(os.path.join(
+        args.attack_checkpoint_path,
+        "best_val_loss.ckpt"
+    ))
+    lightning_model.eval()
+
+    datamodule = CustomDataModule(
+        dataset_name=args.attack_dataset,
+        stage=args.data_mode,
+        num_workers=16,
+        image_size=args.image_size,
+        batch_size=args.batch_size if not args.DEBUG else 2,
+        data_root=args.data_root,
+    )
+    
+    pred_writer = CustomWriter(
+            output_dir=args.attack_results_path,
+            write_interval="epoch",
+        )
+    trainer = pl.Trainer(
+        accelerator="gpu" if not args.DEBUG else "cpu",
+        devices=-1 if not args.DEBUG else 1,
+        callbacks=[pred_writer],
+        strategy="ddp",
+        enable_progress_bar=True,
+    )
+
+    trainer.predict(
+        model=lightning_model,
+        datamodule=datamodule,
+        return_predictions=False,
+    )
+
+    trainer.strategy.barrier()
+
+    if trainer.strategy.is_global_zero:
+        print("Aggregating predictions...")
+        aggregate_predictions(args.attack_results_path)
+
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve, auc
+
+def tpr_at_fpr(tprs, fprs, target_fpr):
+    """
+    Get the TPR at a specific FPR from the ROC curve data.
+    """
+    # Find the index of the closest FPR to the target FPR
+    idx = np.argmin(np.abs(fprs - target_fpr))
+    return tprs[idx]
+
+def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="public"):
+    test_pred_scores, test_target_scores = test_preds[0], test_preds[1]
+    val_pred_scores, val_target_scores = val_preds[0], val_preds[1]
+
+    # Compute z-scores
+    test_mu, test_log_std = test_pred_scores[:, 0], test_pred_scores[:, 1]
+    test_std = torch.exp(test_log_std)
+    test_z_scores = (test_target_scores - test_mu) / test_std
+    test_z_scores = test_z_scores.cpu().numpy()
+
+    val_mu, val_log_std = val_pred_scores[:, 0], val_pred_scores[:, 1]
+    val_std = torch.exp(val_log_std)
+    val_z_scores = (val_target_scores - val_mu) / val_std
+    val_z_scores = val_z_scores.cpu().numpy()
+
+    # Compute ROC curve and ROC area for test set
+    z_scores = np.concatenate((test_z_scores, val_z_scores))
+    labels = np.concatenate((np.ones(len(test_z_scores)), np.zeros(len(val_z_scores))))
+    
+    # Compute ROC curve and ROC area for validation set
+    fpr, tpr, _ = roc_curve(labels, z_scores)
+    roc_auc = auc(fpr, tpr)
+
+    # Plot ROC curve
+    plt.figure()
+    plt.plot(fpr, tpr, color='blue', label=f'ROC curve (area = {roc_auc:.2f})')
+    plt.plot([1e-5, 1], [1e-5, 1], color='red', linestyle='--')
+    plt.xlim([1e-5, 1.0])
+    plt.ylim([1e-5, 1.0])
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic')
+    plt.legend(loc='lower right')
+
+    plt.savefig(os.path.join(args.attack_plots_path, "roc_curve.png"))
+    plt.close()
+
+if __name__ == "__main__":
+    args = argparser()
+
+    print("Predicting on evaluation set...")
+    evaluate_mia(
+        args,
+        rerun=args.rerun
+    )
+
+    test_preds = torch.load(os.path.join(args.attack_results_path, "predictions_test.pt"))
+    val_preds = torch.load(os.path.join(args.attack_results_path, "predictions_val.pt"))
+
+    if not os.path.exists(args.attack_plots_path):
+        os.makedirs(args.attack_plots_path, exist_ok=True)
+
+    print("Plotting ROC curve...")
+    plot_roc_curve(test_preds, val_preds)
+    print("ROC curve plotted and saved.")
+
+    

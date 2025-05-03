@@ -207,7 +207,6 @@ class PairedCustomCIFAR100(tv_datasets.CIFAR100):
 
         return img, target, base_img
 
-
 class PairedCustomCIFAR10(tv_datasets.CIFAR10):
     def __init__(self, size=-1, mean=None, std=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -836,7 +835,6 @@ class CustomDataModule(pl.LightningDataModule):
         self.dataset_name = dataset_name
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.mode = mode
         self.image_size = image_size
         self.data_root = data_root
         self.use_augmentation = use_augmentation
