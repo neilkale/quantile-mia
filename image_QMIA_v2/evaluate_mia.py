@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 import glob
 
 def argparser():
-    parser = argparse.ArgumentParser(description="QMIA attack trainer")
+    parser = argparse.ArgumentParser(description="QMIA evaluation")
     parser.add_argument("--seed", type=int, default=0, help="random seed")
 
     parser.add_argument(
@@ -295,6 +295,7 @@ def evaluate_mia(args, rerun=False):
 
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, auc
+import scipy.stats as ss
 
 def tpr_at_fpr(tprs, fprs, target_fpr):
     """
@@ -304,7 +305,7 @@ def tpr_at_fpr(tprs, fprs, target_fpr):
     idx = np.argmin(np.abs(fprs - target_fpr))
     return tprs[idx]
 
-def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="public"):
+def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="public", title="", save_path="roc_curve"):
     test_pred_scores, test_target_scores = test_preds[0], test_preds[1]
     val_pred_scores, val_target_scores = val_preds[0], val_preds[1]
 
@@ -319,17 +320,94 @@ def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="publi
     val_z_scores = (val_target_scores - val_mu) / val_std
     val_z_scores = val_z_scores.cpu().numpy()
 
-    # Compute ROC curve and ROC area for test set
+    # Compute ROC curve and ROC area for our method
     z_scores = np.concatenate((test_z_scores, val_z_scores))
     labels = np.concatenate((np.ones(len(test_z_scores)), np.zeros(len(val_z_scores))))
-    
-    # Compute ROC curve and ROC area for validation set
     fpr, tpr, _ = roc_curve(labels, z_scores)
     roc_auc = auc(fpr, tpr)
 
+    # Compute ROC curve and ROC area for baseline
+    scores = np.concatenate((test_target_scores.cpu().numpy(), val_target_scores.cpu().numpy()))
+    baseline_fpr, baseline_tpr, _ = roc_curve(labels, scores)
+    baseline_roc_auc = auc(baseline_fpr, baseline_tpr)
+
     # Plot ROC curve
     plt.figure()
-    plt.plot(fpr, tpr, color='steelblue', label=f'ROC curve (area = {roc_auc:.2f})')
+    plt.plot(fpr, tpr, color='steelblue', label=f'Quantile MIA (AUC = {roc_auc:.2f})')
+    plt.plot(baseline_fpr, baseline_tpr, color='indianred', label=f'Baseline (AUC = {baseline_roc_auc:.2f})')
+    plt.plot([1e-4, 1], [1e-4, 1], color='gray', linestyle='--')
+    plt.xlim([1e-4, 1.0])
+    plt.ylim([1e-4, 1.0])
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title(f'ROC Curve {title}')
+    plt.legend(loc='lower right')
+
+    plt.annotate(
+        f'QMIA FPR at TPR=0.1%: {tpr_at_fpr(tpr, fpr, 1e-3)*100:.2f}%',
+        xy=(0.01, 0.9), xycoords='axes fraction', color='steelblue',
+    )
+    plt.annotate(
+        f'QMIA FPR at TPR=1%: {tpr_at_fpr(tpr, fpr, 1e-2)*100:.2f}%',
+        xy=(0.01, 0.95), xycoords='axes fraction', color='steelblue',
+    )
+
+    plt.annotate(
+        f'Baseline FPR at TPR=0.1%: {tpr_at_fpr(baseline_tpr, baseline_fpr, 1e-3)*100:.2f}%',
+        xy=(0.01, 0.8), xycoords='axes fraction', color='indianred',
+    )
+    plt.annotate(
+        f'Baseline FPR at TPR=1%: {tpr_at_fpr(baseline_tpr, baseline_fpr, 1e-2)*100:.2f}%',
+        xy=(0.01, 0.85), xycoords='axes fraction', color='indianred',
+    )
+
+    plt.savefig(os.path.join(args.attack_plots_path, f"{save_path}.png"))
+    plt.close()
+
+def plot_roc_curves(test_preds, val_preds, labels=['ID', 'OOD']):
+    plt.figure()
+
+    colors = plt.cm.viridis(np.linspace(0, 1, len(labels)))
+
+    for i, label in enumerate(labels):
+        test_pred_scores, test_target_scores = test_preds[i][0], test_preds[i][1]
+        val_pred_scores, val_target_scores = val_preds[i][0], val_preds[i][1]
+
+        # Compute z-scores
+        test_mu, test_log_std = test_pred_scores[:, 0], test_pred_scores[:, 1]
+        test_std = torch.exp(test_log_std)
+        test_z_scores = (test_target_scores - test_mu) / test_std
+        test_z_scores = test_z_scores.cpu().numpy()
+
+        val_mu, val_log_std = val_pred_scores[:, 0], val_pred_scores[:, 1]
+        val_std = torch.exp(val_log_std)
+        val_z_scores = (val_target_scores - val_mu) / val_std
+        val_z_scores = val_z_scores.cpu().numpy()
+
+        # Compute ROC curve and ROC area for our method
+        z_scores = np.concatenate((test_z_scores, val_z_scores))
+        labels = np.concatenate((np.ones(len(test_z_scores)), np.zeros(len(val_z_scores))))
+        fpr, tpr, _ = roc_curve(labels, z_scores)
+        roc_auc = auc(fpr, tpr)
+
+        # Compute ROC curve and ROC area for baseline
+        scores = np.concatenate((test_target_scores.cpu().numpy(), val_target_scores.cpu().numpy()))
+        baseline_fpr, baseline_tpr, _ = roc_curve(labels, scores)
+        baseline_roc_auc = auc(baseline_fpr, baseline_tpr)
+
+        plt.plot(fpr, tpr, label=f'{label} Quantile MIA (AUC = {roc_auc:.2f})', color=colors[i])
+        plt.annotate(
+        f'QMIA FPR at TPR=0.1%: {tpr_at_fpr(tpr, fpr, 1e-3)*100:.2f}%',
+        xy=(0.01, 0.9-0.1*i), xycoords='axes fraction', color=colors[i],
+        )
+        plt.annotate(
+            f'QMIA FPR at TPR=1%: {tpr_at_fpr(tpr, fpr, 1e-2)*100:.2f}%',
+            xy=(0.01, 0.95-0.1*i), xycoords='axes fraction', colors=colors[i],
+        )
+    
+    plt.plot(baseline_fpr, baseline_tpr, color='darkgray', label=f'Baseline (AUC = {baseline_roc_auc:.2f})')
     plt.plot([1e-4, 1], [1e-4, 1], color='gray', linestyle='--')
     plt.xlim([1e-4, 1.0])
     plt.ylim([1e-4, 1.0])
@@ -340,185 +418,132 @@ def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="publi
     plt.title('Receiver Operating Characteristic')
     plt.legend(loc='lower right')
 
+    plt.annotate(
+        f'Baseline FPR at TPR=0.1%: {tpr_at_fpr(baseline_tpr, baseline_fpr, 1e-3)*100:.2f}%',
+        xy=(0.01, 0.8), xycoords='axes fraction', color='darkgray',
+    )
+    plt.annotate(
+        f'Baseline FPR at TPR=1%: {tpr_at_fpr(baseline_tpr, baseline_fpr, 1e-2)*100:.2f}%',
+        xy=(0.01, 0.85), xycoords='axes fraction', color='darkgray',
+    )
+
     plt.savefig(os.path.join(args.attack_plots_path, "roc_curve.png"))
     plt.close()
 
-def plot_scores_per_class(preds, label="private"):
+def plot_scores_per_class(
+    preds,
+    label: str = "private",
+    plot_type: str = "cdf",
+    log_x: bool = True,
+):
     """
-    Plot the scores per class for the given predictions.
+    Plot per‑class score distributions for a set of predictions.
+
+    Parameters
+    ----------
+    preds : tuple(torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, float)
+        (pred_scores, target_scores, logits, targets, loss) as returned by the
+        attack pipeline. `pred_scores` is expected to be shaped [N, 1].
+    label : str, optional
+        Tag used in figure titles / filenames.
+    plot_type : {'cdf', 'hist', 'violin'}, optional
+        Type of plot to draw.
+    save_dir : str | None, optional
+        Directory to place PNGs (defaults to ``args.attack_plots_path`` if unset).
+    log_x : bool, optional
+        Apply log‑scale to the x‑axis (ignored for violin).
     """
-    pred_scores, target_scores, logits, targets, loss = preds
-    pred_scores = pred_scores[:,0].cpu().numpy()
-    target_scores = target_scores.cpu().numpy()
+    pred_scores, tgt_scores, *_ , targets, _ = preds
+    pred_scores = pred_scores[:, 0].cpu().numpy()
+    tgt_scores = tgt_scores.cpu().numpy()
     targets = targets.cpu().numpy()
+    classes = np.unique(targets)
 
-    # Get unique classes
-    unique_classes = np.unique(targets)
+    def _single_plot(scores, tag, colour):
+        plt.figure(figsize=(10, 6))
+        if plot_type == "violin":
+            data = [scores[targets == cls].ravel() for cls in classes]
+            parts = plt.violinplot(
+                data,
+                positions=np.arange(len(classes)),
+                showmeans=True,
+                showmedians=True,
+            )
+            for pc in parts["bodies"]:
+                pc.set_facecolor(colour)
+                pc.set_edgecolor("black")
+                pc.set_alpha(0.7)
+            parts["cmeans"].set_color("red")
+            parts["cmedians"].set_color("black")
+            plt.xticks(range(len(classes)), [f"Class {c}" for c in classes])
+            plt.xlabel("Class")
+            plt.ylabel("Score")
+        else:
+            for cls in classes:
+                cls_scores = scores[targets == cls].ravel()
+                if plot_type == "cdf":
+                    x = np.sort(cls_scores)
+                    y = np.arange(1, len(x) + 1) / len(x)
+                    plt.plot(x, y, label=f"Class {cls}")
+                elif plot_type == "hist":
+                    plt.hist(
+                        cls_scores,
+                        bins=100,
+                        alpha=0.5,
+                        density=True,
+                        label=f"Class {cls}",
+                    )
+            plt.xlabel("Score")
+            plt.ylabel("Cumulative Prob." if plot_type == "cdf" else "Density")
+        title = f"{plot_type.upper()} of {tag.capitalize()} Scores per Class – {label}"
+        plt.title(title)
+        if plot_type != "violin" and log_x:
+            plt.xscale("log")
+        plt.grid(True, linestyle="--", alpha=0.7, axis="y" if plot_type == "violin" else "both")
+        if plot_type != "violin":
+            plt.legend()
+        plt.tight_layout()
+        fname = f"{plot_type}_{tag}_scores_per_class_{label}.png"
+        plt.savefig(os.path.join(args.attack_plots_path, fname))
+        plt.close()
 
-    # Create a figure for the plot
-    plt.figure(figsize=(10, 6))
+    _single_plot(pred_scores, "pred", "#3274A1")
+    _single_plot(tgt_scores, "target", "#E1812C")
 
-    # Plot CDF for each class
-    for cls in unique_classes:
-        cls_mask = (targets == cls)
-        # Get scores for this class
-        scores = pred_scores[cls_mask]
-        # Sort scores
-        scores_sorted = np.sort(scores)
-        # Create CDF (y-axis values from 0 to 1)
-        cdf = np.arange(1, len(scores_sorted) + 1) / len(scores_sorted)
-        # Plot CDF
-        plt.plot(scores_sorted, cdf, label=f'Class {cls}')
-
-    plt.xlabel('Score')
-    plt.ylabel('Cumulative Probability')
-    plt.title(f'CDF of Predicted Scores per Class - {label}')
-    plt.xscale('log')
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.savefig(os.path.join(args.attack_plots_path, f"cdf_pred_scores_per_class_{label}.png"))
-    plt.close()
-
-    # Create a figure for the plot
-    plt.figure(figsize=(10, 6))
-
-    # Plot CDF for each class
-    for cls in unique_classes:
-        cls_mask = (targets == cls)
-        # Get scores for this class
-        scores = target_scores[cls_mask]
-        # Sort scores
-        scores_sorted = np.sort(scores)
-        # Create CDF (y-axis values from 0 to 1)
-        cdf = np.arange(1, len(scores_sorted) + 1) / len(scores_sorted)
-        # Plot CDF
-        plt.plot(scores_sorted, cdf, label=f'Class {cls}')
-
-    plt.xlabel('Score')
-    plt.ylabel('Cumulative Probability')
-    plt.title(f'CDF of Target Scores per Class - {label}')
-    plt.legend()
-    plt.xscale('log')
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.savefig(os.path.join(args.attack_plots_path, f"cdf_target_scores_per_class_{label}.png"))
-    plt.close()
-
-def plot_cdf_gap(test_preds, val_preds):
-    # Get target scores and class labels for test and validation sets
-    test_targets = test_preds[1].cpu().numpy().flatten()
-    test_labels = test_preds[3].cpu().numpy().flatten()
-    val_targets = val_preds[1].cpu().numpy().flatten()
-    val_labels = val_preds[3].cpu().numpy().flatten()
-
-    # Get union of classes from test and validation sets
-    unique_classes = np.union1d(np.unique(test_labels), np.unique(val_labels))
-
-    plt.figure(figsize=(10, 6))
-    for cls in unique_classes:
-        # Filter target scores for the current class
-        test_class_targets = test_targets[test_labels == cls]
-        val_class_targets = val_targets[val_labels == cls]
-
-        if len(test_class_targets) == 0 or len(val_class_targets) == 0:
-            continue
-
-        # Sort the scores
-        test_sorted = np.sort(test_class_targets)
-        val_sorted = np.sort(val_class_targets)
-
-        # Create a common grid for x-axis between the min and max of both arrays
-        xmin = min(test_sorted[0], val_sorted[0])
-        xmax = max(test_sorted[-1], val_sorted[-1])
-        x_grid = np.linspace(xmin, xmax, 1000)
-
-        # Compute empirical CDF for test and validation targets
-        test_cdf = np.searchsorted(test_sorted, x_grid, side='right') / len(test_sorted)
-        val_cdf = np.searchsorted(val_sorted, x_grid, side='right') / len(val_sorted)
-
-        # Compute the gap between the two CDFs
-        cdf_gap = test_cdf - val_cdf
-
-        # Plot the CDF gap for this class on the same plot
-        plt.plot(x_grid, cdf_gap, label=f'Class {int(cls)}')
-
-    plt.xlabel('Target Score')
-    plt.ylabel('CDF Gap (Private - Public)')
-    plt.title('Difference between CDF of Target Scores (Private vs. Public)')
-    plt.legend(title="Classes")
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.savefig(os.path.join(args.attack_plots_path, "cdf_gap_all.png"))
-    plt.close()
-
-def plot_scores_violin_per_class(preds, label="private"):    
-    pred_scores, target_scores, logits, targets, loss = preds
-    pred_scores = pred_scores[:,0].cpu().numpy()
-    target_scores = target_scores.cpu().numpy()
-    targets = targets.cpu().numpy()
-
-    # Get unique classes
-    unique_classes = np.unique(targets)
-
-    # Create a figure for the plot
-    plt.figure(figsize=(10, 6))
-
-    # Prepare data for violin plot - ensure 1D arrays
-    data_to_plot = [np.ravel(pred_scores[targets == cls]) for cls in unique_classes]
+def class_effect_stats(score, y):
+    groups = [score[y == c] for c in np.unique(y)]
+    F, p_anova = ss.f_oneway(*groups)                 # parametric
+    H, p_kw    = ss.kruskal(*groups)                  # non‑parametric
     
-    # Create violin plot
-    violin_parts = plt.violinplot(data_to_plot, positions=range(len(unique_classes)), 
-                                  showmeans=True, showmedians=True)
+    # ETA‑squared (effect size)
+    grand_mean = score.mean()
+    sst = ((score - grand_mean)**2).sum()
+    ssb = sum(len(g)*(g.mean() - grand_mean)**2 for g in groups)
+    eta2 = ssb / sst
     
-    # Customize violin plot appearance
-    for pc in violin_parts['bodies']:
-        pc.set_facecolor('#3274A1')
-        pc.set_edgecolor('black')
-        pc.set_alpha(0.7)
-    
-    # Customize mean and median lines
-    violin_parts['cmeans'].set_color('red')
-    violin_parts['cmedians'].set_color('black')
-    
-    # Set x-axis ticks and labels
-    plt.xticks(range(len(unique_classes)), [f'Class {cls}' for cls in unique_classes])
-    
-    plt.xlabel('Class')
-    plt.ylabel('Predicted Scores')
-    plt.title(f'Violin Plot of Predicted Scores per Class - {label}')
-    plt.grid(True, linestyle='--', alpha=0.7, axis='y')
-    plt.tight_layout()
-    plt.savefig(os.path.join(args.attack_plots_path, f"violin_pred_scores_per_class_{label}.png"))
-    plt.close()
+    return {'F':F, 'p_ANOVA':p_anova, 'H':H, 'p_KW':p_kw, 'eta2':eta2}
 
-    # Create a figure for target scores
-    plt.figure(figsize=(10, 6))
+def stat_corr_scores_labels(preds, label: str = "private"):
+    pred_scores, tgt_scores, *_, targets, _ = preds
+    pred_scores = pred_scores[:, 0].cpu().numpy()      # predicted top‑two margin
+    tgt_scores  = tgt_scores.cpu().numpy()             # top‑two margin
+    targets     = targets.cpu().numpy()                # int labels 0..9
 
-    # Prepare data for violin plot - ensure 1D arrays
-    data_to_plot = [np.ravel(target_scores[targets == cls]) for cls in unique_classes]
-    
-    # Create violin plot
-    violin_parts = plt.violinplot(data_to_plot, positions=range(len(unique_classes)), 
-                                  showmeans=True, showmedians=True)
-    
-    # Customize violin plot appearance
-    for pc in violin_parts['bodies']:
-        pc.set_facecolor('#E1812C')
-        pc.set_edgecolor('black')
-        pc.set_alpha(0.7)
-    
-    # Customize mean and median lines
-    violin_parts['cmeans'].set_color('red')
-    violin_parts['cmedians'].set_color('black')
-    
-    # Set x-axis ticks and labels
-    plt.xticks(range(len(unique_classes)), [f'Class {cls}' for cls in unique_classes])
-    
-    plt.xlabel('Class')
-    plt.ylabel('Target Scores')
-    plt.title(f'Violin Plot of Target Scores per Class - {label}')
-    plt.grid(True, linestyle='--', alpha=0.7, axis='y')
-    plt.tight_layout()
-    plt.savefig(os.path.join(args.attack_plots_path, f"violin_target_scores_per_class_{label}.png"))
-    plt.close()
+    stats_pred = class_effect_stats(pred_scores, targets)
+    stats_tgt  = class_effect_stats(tgt_scores,  targets)
+
+    print(f"\n=== {label.upper()}  SCORES vs. CLASS LABEL ===")
+    print("Mean PREDICTED score (top two margin / 'confidence'):")
+    print(f"  ANOVA:   F = {stats_pred['F']:.3f},  p = {stats_pred['p_ANOVA']:.3g}")
+    print(f"  Kruskal: H = {stats_pred['H']:.3f},  p = {stats_pred['p_KW']:.3g}")
+    print(f"  η² (effect size) = {stats_pred['eta2']:.3f}")
+
+    print("\nTARGET score (top two margin / 'confidence'):")
+    print(f"  ANOVA:   F = {stats_tgt['F']:.3f},  p = {stats_tgt['p_ANOVA']:.3g}")
+    print(f"  Kruskal: H = {stats_tgt['H']:.3f},  p = {stats_tgt['p_KW']:.3g}")
+    print(f"  η² (effect size) = {stats_tgt['eta2']:.3f}")
+
+    return stats_pred, stats_tgt
 
 if __name__ == "__main__":
     args = argparser()
@@ -535,16 +560,78 @@ if __name__ == "__main__":
     if not os.path.exists(args.attack_plots_path):
         os.makedirs(args.attack_plots_path, exist_ok=True)
 
-    print("Plotting ROC curve...")
+    print("Plotting ROC curves...")
     plot_roc_curve(test_preds, val_preds)
-    print("ROC curve plotted and saved.")
+    if args.cls_drop:
+        # OOD
+        test_mask = torch.tensor([label.item() in args.cls_drop for label in test_preds[3]])
+        test_preds_ood = [pred[test_mask] for pred in test_preds]
+        val_mask = torch.tensor([label.item() in args.cls_drop for label in val_preds[3]])
+        val_preds_ood = [pred[val_mask] for pred in val_preds]
+        plot_roc_curve(test_preds_ood, val_preds_ood, test_label="private (OOD)", val_label="public (OOD)", title=f'(Dropped Class/es, {args.cls_drop})', save_path="roc_curve_ood")
+        # ID
+        test_mask = torch.tensor([label.item() not in args.cls_drop for label in test_preds[3]])
+        test_preds_ood = [pred[test_mask] for pred in test_preds]
+        val_mask = torch.tensor([label.item() not in args.cls_drop for label in val_preds[3]])
+        val_preds_ood = [pred[val_mask] for pred in val_preds]
+        all_classes = np.arange(args.num_base_classes)
+        kept_classes = np.setdiff1d(all_classes, args.cls_drop)
+        plot_roc_curve(test_preds_ood, val_preds_ood, test_label="private (ID)", val_label="public (ID)", title=f'(Kept Class/es, {kept_classes})', save_path="roc_curve_id")
+    print("ROC curves plotted and saved.")
 
     print("Plotting scores per class...")
-    plot_scores_per_class(test_preds, label="private")
-    plot_scores_per_class(val_preds, label="public")
-    plot_scores_violin_per_class(test_preds, label="private")
-    plot_scores_violin_per_class(val_preds, label="public")
-    plot_cdf_gap(test_preds, val_preds)
+    plot_scores_per_class(test_preds, label="private", plot_type="cdf")
+    plot_scores_per_class(val_preds, label="public", plot_type="cdf")
+    plot_scores_per_class(test_preds, label="private", plot_type="violin")
+    plot_scores_per_class(val_preds, label="public", plot_type="violin")
     print("Scores per class plotted and saved.")
 
-    
+    print("Analyzing statistical correlation between target scores and class labels...")
+    stat_corr_scores_labels(test_preds, label="private")
+    stat_corr_scores_labels(val_preds, label="public")
+
+# def plot_cdf_gap(test_preds, val_preds):
+#     # Get target scores and class labels for test and validation sets
+#     test_targets = test_preds[1].cpu().numpy().flatten()
+#     test_labels = test_preds[3].cpu().numpy().flatten()
+#     val_targets = val_preds[1].cpu().numpy().flatten()
+#     val_labels = val_preds[3].cpu().numpy().flatten()
+
+#     # Get union of classes from test and validation sets
+#     unique_classes = np.union1d(np.unique(test_labels), np.unique(val_labels))
+
+#     plt.figure(figsize=(10, 6))
+#     for cls in unique_classes:
+#         # Filter target scores for the current class
+#         test_class_targets = test_targets[test_labels == cls]
+#         val_class_targets = val_targets[val_labels == cls]
+
+#         if len(test_class_targets) == 0 or len(val_class_targets) == 0:
+#             continue
+
+#         # Sort the scores
+#         test_sorted = np.sort(test_class_targets)
+#         val_sorted = np.sort(val_class_targets)
+
+#         # Create a common grid for x-axis between the min and max of both arrays
+#         xmin = min(test_sorted[0], val_sorted[0])
+#         xmax = max(test_sorted[-1], val_sorted[-1])
+#         x_grid = np.linspace(xmin, xmax, 1000)
+
+#         # Compute empirical CDF for test and validation targets
+#         test_cdf = np.searchsorted(test_sorted, x_grid, side='right') / len(test_sorted)
+#         val_cdf = np.searchsorted(val_sorted, x_grid, side='right') / len(val_sorted)
+
+#         # Compute the gap between the two CDFs
+#         cdf_gap = test_cdf - val_cdf
+
+#         # Plot the CDF gap for this class on the same plot
+#         plt.plot(x_grid, cdf_gap, label=f'Class {int(cls)}')
+
+#     plt.xlabel('Target Score')
+#     plt.ylabel('CDF Gap (Private - Public)')
+#     plt.title('Difference between CDF of Target Scores (Private vs. Public)')
+#     plt.legend(title="Classes")
+#     plt.grid(True, linestyle='--', alpha=0.7)
+#     plt.savefig(os.path.join(args.attack_plots_path, "cdf_gap_all.png"))
+#     plt.close()

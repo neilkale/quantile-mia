@@ -253,14 +253,14 @@ def get_cifar(locator="cifar10/0_16", image_size=-1, data_root="./data"):
         dataset_name = "cifar10"
         dataset_fn = PairedCustomCIFAR10
         mean, std = DATASET_FLAGS.CIFAR10_MEAN, DATASET_FLAGS.CIFAR10_STD
-        if size == -1:
-            size = 32
+        if image_size == -1:
+            image_size = 32
     elif locator.split("/")[0] == "cifar100":
         dataset_name = "cifar100"
         dataset_fn = PairedCustomCIFAR100
         mean, std = DATASET_FLAGS.CIFAR100_MEAN, DATASET_FLAGS.CIFAR100_STD
-        if size == -1:
-            size = 32
+        if image_size == -1:
+            image_size = 32
     else:
         raise NotImplementedError(
             f"Dataset {locator} not supported. Please use cifar10, cifar100, cinic10, or imagenet."
@@ -446,7 +446,7 @@ def get_imagenet(
         os.path.join(root_dir, "train"), transform=transform_train
     )
     test_dataset = tv_datasets.ImageFolder(
-        os.path.join(root_dir, "test"), transform=transform_test
+        os.path.join(root_dir, "val"), transform=transform_test
     )
 
     # get private/public split for experiment

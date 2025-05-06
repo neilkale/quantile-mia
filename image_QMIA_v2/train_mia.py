@@ -210,6 +210,7 @@ def train_model(args):
         image_size=args.image_size,
         batch_size=args.batch_size if not args.DEBUG else 2,
         data_root=args.data_root,
+        cls_drop=args.cls_drop,
     )
     metric = "ptl/val_loss"
     mode = "min"

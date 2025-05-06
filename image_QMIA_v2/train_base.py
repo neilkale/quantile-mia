@@ -207,6 +207,8 @@ if __name__ == "__main__":
         "step_fraction": args.scheduler_step_fraction,
         "gradient_clip_val": args.grad_clip,
         "label_smoothing": args.label_smoothing,
+        "batch_size": args.batch_size,
+        "image_size": args.image_size,
     }
 
     train_model(
