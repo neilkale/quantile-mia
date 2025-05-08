@@ -267,7 +267,6 @@ class LightningQMIA(pl.LightningModule):
 
         loss = self.loss_fn(pred_scores, target_scores).mean()
         acc1, acc5 = accuracy(logits, targets, topk=(1, 5))
-        
 
         rets = {
             "val_loss": loss,
@@ -301,6 +300,7 @@ class LightningQMIA(pl.LightningModule):
         pred_scores = self.forward(samples, targets, logits)
 
         loss = self.loss_fn(pred_scores, target_scores)
+        acc1, acc5 = accuracy(logits, targets, topk=(1, 5))
         
         return pred_scores, target_scores, logits, targets, loss
     

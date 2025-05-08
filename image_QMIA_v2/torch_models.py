@@ -131,8 +131,12 @@ def get_torchvision_model(
         model_fn = tvm.convnext_tiny
         model_weights = tvm.ConvNeXt_Tiny_Weights.IMAGENET1K_V1
         model = model_fn(weights=model_weights)
+        
+        # Get the actual feature dimension instead of hardcoding
+        feature_dim = model.classifier[-1].in_features  # This will be 768 or 1536
+        print
         if len(hidden_dims):
-            prev_size = 768
+            prev_size = feature_dim
             mlp_list = []
             for hd in hidden_dims:
                 mlp_list.append(torch.nn.Linear(prev_size, hd))
@@ -142,7 +146,7 @@ def get_torchvision_model(
             model.classifier = torch.nn.Sequential(*mlp_list)
         else:
             model.classifier[-1] = torch.nn.Linear(
-                in_features=768, out_features=num_classes, bias=True
+                in_features=feature_dim, out_features=num_classes, bias=True
             )
     else:
         raise NotImplementedError(f"Model {model_name} not implemented")
