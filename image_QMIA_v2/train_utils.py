@@ -33,17 +33,17 @@ def huber_gaussian_loss_fn(score, target, delta=1.0):
 # Score functions for the attack network
 ###########
 
-def top_two_margin_score_fn(logits):
+def top_two_margin_score_fn(logits, targets=None):
     # z_{max}(x) - z_{second-max}(x)
     top_two = torch.topk(logits, 2, dim=1)
     score = top_two.values[:, 0] - top_two.values[:, 1]
     return score
 
-def true_margin_score_fn(logits, target):
-    # z_{target}(x) - z_{second-max}(x)
-    top_two = torch.topk(logits, 2, dim=1)
-    target_idx = target.view(-1, 1)
-    target_score = torch.gather(top_two.values, 1, target_idx)
-    second_max_score = top_two.values[:, 1]
-    score = target_score - second_max_score
+def true_margin_score_fn(logits, targets):
+    target = targets.view(-1, 1)
+    target_logits = torch.gather(logits, 1, target).squeeze()
+    mask = torch.ones_like(logits, dtype=torch.bool)
+    mask.scatter_(1, target, False)
+    max_non_target = torch.max(logits.masked_fill(~mask, float('-inf')), dim=1)[0]
+    score = target_logits - max_non_target
     return score

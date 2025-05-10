@@ -256,6 +256,8 @@ def aggregate_predictions(results_path):
     #         os.remove(pred_file)
     # print("Original prediction files removed")
 
+
+
 def evaluate_mia(args, rerun=False):
     if os.path.exists(args.attack_results_path) and not rerun:
         print(f"Results already exist at {args.attack_results_path}.")
@@ -278,7 +280,7 @@ def evaluate_mia(args, rerun=False):
     lightning_model.eval()
 
     datamodule = CustomDataModule(
-        dataset_name=args.attack_dataset,
+        dataset_name=args.base_model_dataset,
         stage=args.data_mode,
         num_workers=16,
         image_size=args.image_size,
@@ -326,7 +328,14 @@ def tpr_at_fpr(tprs, fprs, target_fpr):
     idx = np.argmin(np.abs(fprs - target_fpr))
     return tprs[idx]
 
-def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="public", title="", save_path="roc_curve"):
+def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="public", title="", save_path="roc_curve", 
+                  plot=True, fig=None, ax=None):
+    
+    if args.num_base_classes == 10:
+        MIN_X = 1e-4
+    if args.num_base_classes == 100:
+        MIN_X = 1e-3
+
     test_pred_scores, test_target_scores = test_preds[0], test_preds[1]
     val_pred_scores, val_target_scores = val_preds[0], val_preds[1]
 
@@ -351,41 +360,100 @@ def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="publi
     scores = np.concatenate((test_target_scores.cpu().numpy(), val_target_scores.cpu().numpy()))
     baseline_fpr, baseline_tpr, _ = roc_curve(labels, scores)
     baseline_roc_auc = auc(baseline_fpr, baseline_tpr)
+    
+    # Collect data to return
+    curve_data = {
+        'qmia': {
+            'fpr': fpr, 
+            'tpr': tpr, 
+            'auc': roc_auc,
+            'fpr_at_tpr_0.1': tpr_at_fpr(tpr, fpr, 1e-3),
+            'fpr_at_tpr_1': tpr_at_fpr(tpr, fpr, 1e-2)
+        },
+        'baseline': {
+            'fpr': baseline_fpr, 
+            'tpr': baseline_tpr, 
+            'auc': baseline_roc_auc,
+            'fpr_at_tpr_0.1': tpr_at_fpr(baseline_tpr, baseline_fpr, 1e-3),
+            'fpr_at_tpr_1': tpr_at_fpr(baseline_tpr, baseline_fpr, 1e-2)
+        },
+        'title': title
+    }
+    
+    # Plot ROC curve if requested
+    if plot:
+        if fig is None or ax is None:
+            fig, ax = plt.subplots(figsize=(6, 6))
+            
+        ax.plot(fpr, tpr, color='steelblue', label=f'Quantile MIA (AUC = {roc_auc:.2f})')
+        ax.plot(baseline_fpr, baseline_tpr, color='indianred', label=f'Baseline (AUC = {baseline_roc_auc:.2f})')
+        ax.plot([MIN_X, 1], [MIN_X, 1], color='gray', linestyle='--')
+        ax.set_xlim([MIN_X, 1.0])
+        ax.set_ylim([MIN_X, 1.0])
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlabel('False Positive Rate')
+        ax.set_ylabel('True Positive Rate')
+        ax.set_title(f'ROC Curve {title}')
+        ax.legend(loc='lower right')
 
-    # Plot ROC curve
-    plt.figure()
-    plt.plot(fpr, tpr, color='steelblue', label=f'Quantile MIA (AUC = {roc_auc:.2f})')
-    plt.plot(baseline_fpr, baseline_tpr, color='indianred', label=f'Baseline (AUC = {baseline_roc_auc:.2f})')
-    plt.plot([1e-4, 1], [1e-4, 1], color='gray', linestyle='--')
-    plt.xlim([1e-4, 1.0])
-    plt.ylim([1e-4, 1.0])
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title(f'ROC Curve {title}')
-    plt.legend(loc='lower right')
+        ax.annotate(
+            f'QMIA FPR at TPR=0.1%: {tpr_at_fpr(tpr, fpr, 1e-3)*100:.2f}%',
+            xy=(0.01, 0.9), xycoords='axes fraction', color='steelblue',
+        )
+        ax.annotate(
+            f'QMIA FPR at TPR=1%: {tpr_at_fpr(tpr, fpr, 1e-2)*100:.2f}%',
+            xy=(0.01, 0.95), xycoords='axes fraction', color='steelblue',
+        )
 
-    plt.annotate(
-        f'QMIA FPR at TPR=0.1%: {tpr_at_fpr(tpr, fpr, 1e-3)*100:.2f}%',
-        xy=(0.01, 0.9), xycoords='axes fraction', color='steelblue',
-    )
-    plt.annotate(
-        f'QMIA FPR at TPR=1%: {tpr_at_fpr(tpr, fpr, 1e-2)*100:.2f}%',
-        xy=(0.01, 0.95), xycoords='axes fraction', color='steelblue',
-    )
+        ax.annotate(
+            f'Baseline FPR at TPR=0.1%: {tpr_at_fpr(baseline_tpr, baseline_fpr, 1e-3)*100:.2f}%',
+            xy=(0.01, 0.8), xycoords='axes fraction', color='indianred',
+        )
+        ax.annotate(
+            f'Baseline FPR at TPR=1%: {tpr_at_fpr(baseline_tpr, baseline_fpr, 1e-2)*100:.2f}%',
+            xy=(0.01, 0.85), xycoords='axes fraction', color='indianred',
+        )
+        
+        if save_path:
+            plt.savefig(os.path.join(args.attack_plots_path, f"{save_path}.png"))
+            if fig is None and ax is None:  # Only close if we created a new figure
+                plt.close()
+    
+    return curve_data, fig, ax
 
-    plt.annotate(
-        f'Baseline FPR at TPR=0.1%: {tpr_at_fpr(baseline_tpr, baseline_fpr, 1e-3)*100:.2f}%',
-        xy=(0.01, 0.8), xycoords='axes fraction', color='indianred',
-    )
-    plt.annotate(
-        f'Baseline FPR at TPR=1%: {tpr_at_fpr(baseline_tpr, baseline_fpr, 1e-2)*100:.2f}%',
-        xy=(0.01, 0.85), xycoords='axes fraction', color='indianred',
-    )
-
+def create_roc_curve_grid(test_val_preds_list, titles, save_path="roc_curve_grid"):
+    # Create a grid of subplots
+    n = len(test_val_preds_list)
+    cols = int(np.ceil(n / 2))
+    fig, axes = plt.subplots(2, cols, figsize=(5 * cols, 10))
+    axes = axes.flatten() if n > 1 else [axes]
+    
+    for i, (test_preds, val_preds, title) in enumerate(zip(
+            [tup[0] for tup in test_val_preds_list],
+            [tup[1] for tup in test_val_preds_list],
+            titles)):
+        
+        if i < len(axes):
+            # Plot on the corresponding subplot
+            curve_data, _, _ = plot_roc_curve(
+                test_preds, val_preds, 
+                title=title, 
+                save_path=None,  # Don't save individual plots
+                plot=True, 
+                fig=fig, 
+                ax=axes[i]
+            )
+    
+    # Hide any unused subplots
+    for j in range(i + 1, len(axes)):
+        axes[j].axis('off')
+    
+    plt.tight_layout()
     plt.savefig(os.path.join(args.attack_plots_path, f"{save_path}.png"))
     plt.close()
+    
+    return fig
 
 def plot_roc_curves(test_preds, val_preds, labels=['ID', 'OOD']):
     plt.figure()
@@ -1303,14 +1371,29 @@ if __name__ == "__main__":
         all_classes = np.arange(args.num_base_classes)
         kept_classes = np.setdiff1d(all_classes, args.cls_drop)
         plot_roc_curve(test_preds_ood, val_preds_ood, test_label="private (ID)", val_label="public (ID)", title=f'(Kept Class/es, all but {args.cls_drop})', save_path="roc_curve_id")
+
+    if args.num_base_classes <= 10:
+        test_preds_per_cls = []
+        val_preds_per_cls = []
+        for cls in range(args.num_base_classes):
+            test_mask = torch.tensor([label.item() == cls for label in test_preds[3]])
+            test_preds_per_cls.append([pred[test_mask] for pred in test_preds])
+            val_mask = torch.tensor([label.item() == cls for label in val_preds[3]])
+            val_preds_per_cls.append([pred[val_mask] for pred in val_preds])
+        create_roc_curve_grid(
+            [(test_preds_per_cls[i], val_preds_per_cls[i]) for i in range(args.num_base_classes)],
+            titles=[f"Class {i}" for i in range(args.num_base_classes)],
+            save_path="roc_curve_per_class",
+        )
+
     print("ROC curves plotted and saved.")
 
-    # print("Plotting scores per class...")
-    # plot_scores_per_class(test_preds, label="private", plot_type="cdf")
-    # plot_scores_per_class(val_preds, label="public", plot_type="cdf")
-    # plot_scores_per_class(test_preds, label="private", plot_type="violin")
-    # plot_scores_per_class(val_preds, label="public", plot_type="violin")
-    # print("Scores per class plotted and saved.")
+    print("Plotting scores per class...")
+    plot_scores_per_class(test_preds, label="private", plot_type="cdf")
+    plot_scores_per_class(val_preds, label="public", plot_type="cdf")
+    plot_scores_per_class(test_preds, label="private", plot_type="violin")
+    plot_scores_per_class(val_preds, label="public", plot_type="violin")
+    print("Scores per class plotted and saved.")
 
     print("Computing accuracies...")
     compute_accuracies(test_preds, val_preds)

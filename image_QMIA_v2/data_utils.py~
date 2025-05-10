@@ -382,7 +382,7 @@ def get_cinic10(locator="cinic10/0_16", image_size=-1, base_image_size=-1, data_
     pkeep = 0.5
     experiment_idx, num_experiment = (int(n) for n in locator.split("/")[1].split("_"))
 
-    mean, std = DATASET_FLAGS.CINIC10_MEAN, DATASET_FLAGS.CINIC10_STD # DATASET_FLAGS.CIFAR100_MEAN, DATASET_FLAGS.CIFAR100_STD #
+    mean, std = DATASET_FLAGS.CINIC10_MEAN, DATASET_FLAGS.CINIC10_STD #DATASET_FLAGS.CIFAR100_MEAN, DATASET_FLAGS.CIFAR100_STD
 
     # Create the train/test transforms, resizing is done in the dataset class
     transform_train = transforms.Compose([

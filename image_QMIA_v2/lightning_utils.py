@@ -7,8 +7,9 @@ from scheduler_utils import build_scheduler
 from train_utils import (
     gaussian_loss_fn,
     huber_gaussian_loss_fn,
-    top_two_margin_score_fn,)
-
+    top_two_margin_score_fn,
+    true_margin_score_fn,
+)
 from timm.utils import accuracy
 from torchmetrics.utilities.data import to_onehot
 from torch_models import get_model
@@ -250,6 +251,8 @@ class LightningQMIA(pl.LightningModule):
         
         if score_fn == "top_two_margin":
             self.score_fn = top_two_margin_score_fn
+        elif score_fn == "true_margin":
+            self.score_fn = true_margin_score_fn
         else:
             raise ValueError(f"Unknown score function: {score_fn}")
         
@@ -267,7 +270,7 @@ class LightningQMIA(pl.LightningModule):
 
         logits = self.base_model(base_samples)
 
-        target_scores = self.score_fn(logits)
+        target_scores = self.score_fn(logits, targets)
         pred_scores = self.forward(samples, targets, logits)
 
         loss = self.loss_fn(pred_scores, target_scores).mean()
@@ -279,7 +282,7 @@ class LightningQMIA(pl.LightningModule):
 
         logits = self.base_model(base_samples)
 
-        target_scores = self.score_fn(logits)
+        target_scores = self.score_fn(logits, targets)
         pred_scores = self.forward(samples, targets, logits)
 
         loss = self.loss_fn(pred_scores, target_scores).mean()
@@ -313,7 +316,7 @@ class LightningQMIA(pl.LightningModule):
 
         logits = self.base_model(base_samples)
 
-        target_scores = self.score_fn(logits)
+        target_scores = self.score_fn(logits, targets)
         pred_scores = self.forward(samples, targets, logits)
 
         loss = self.loss_fn(pred_scores, target_scores)
