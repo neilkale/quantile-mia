@@ -23,8 +23,14 @@ def argparser():
     parser.add_argument(
         "--image_size",
         type=int,
-        default=32,
+        default=-1,
         help="image input size, set to -1 to use dataset's default value",
+    )
+    parser.add_argument(
+        "--base_image_size",
+        type=int,
+        default=-1,
+        help="image input size to base model, set to -1 to use dataset's default value",
     )
 
     parser.add_argument(
@@ -63,6 +69,13 @@ def argparser():
         type=str,
         default=None,
         help="dataset (i.e. cinic10/0_16, imagenet/0_16, cifar100/0_16), if None, use the same as base_model_dataset",
+    )
+
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="best_val_loss",
+        help="checkpoint path (either best_val_loss or last)",
     )
 
     parser.add_argument(
@@ -260,7 +273,7 @@ def evaluate_mia(args, rerun=False):
     
     lightning_model = LightningQMIA.load_from_checkpoint(os.path.join(
         args.attack_checkpoint_path,
-        "best_val_loss.ckpt"
+        f"{args.checkpoint}.ckpt"
     ))
     lightning_model.eval()
 
@@ -269,6 +282,7 @@ def evaluate_mia(args, rerun=False):
         stage=args.data_mode,
         num_workers=16,
         image_size=args.image_size,
+        base_image_size=args.base_image_size,
         batch_size=args.batch_size if not args.DEBUG else 2,
         data_root=args.data_root,
     )
@@ -1288,7 +1302,7 @@ if __name__ == "__main__":
         val_preds_ood = [pred[val_mask] for pred in val_preds]
         all_classes = np.arange(args.num_base_classes)
         kept_classes = np.setdiff1d(all_classes, args.cls_drop)
-        plot_roc_curve(test_preds_ood, val_preds_ood, test_label="private (ID)", val_label="public (ID)", title=f'(Kept Class/es, {kept_classes})', save_path="roc_curve_id")
+        plot_roc_curve(test_preds_ood, val_preds_ood, test_label="private (ID)", val_label="public (ID)", title=f'(Kept Class/es, all but {args.cls_drop})', save_path="roc_curve_id")
     print("ROC curves plotted and saved.")
 
     # print("Plotting scores per class...")

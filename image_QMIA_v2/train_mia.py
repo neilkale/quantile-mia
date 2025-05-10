@@ -41,8 +41,14 @@ def argparser():
     parser.add_argument(
         "--image_size",
         type=int,
-        default=32,
+        default=-1,
         help="image input size, set to -1 to use dataset's default value",
+    )
+    parser.add_argument(
+        "--base_image_size",
+        type=int,
+        default=-1,
+        help="base model image input size, set to -1 to use dataset's default value",
     )
     parser.add_argument(
         "--lr",
@@ -124,6 +130,13 @@ def argparser():
     )
 
     parser.add_argument(
+        "--early_stopping",
+        type=int,
+        default=None,
+        help="early stopping patience",
+    )
+
+    parser.add_argument(
         "--DEBUG",
         action="store_true",
         help="debug mode, set to True to run on CPU and with fewer epochs",
@@ -190,6 +203,7 @@ def train_model(args):
         architecture=args.architecture,
         base_architecture=args.base_architecture,
         image_size=args.image_size,
+        base_image_size=args.base_image_size,
         hidden_dims=[512,512],
         num_classes=args.num_base_classes,
         optimizer_params={
@@ -208,6 +222,7 @@ def train_model(args):
         stage=args.data_mode,
         num_workers=16,
         image_size=args.image_size,
+        base_image_size=args.base_image_size,
         batch_size=args.batch_size if not args.DEBUG else 2,
         data_root=args.data_root,
         cls_drop=args.cls_drop,
@@ -225,7 +240,31 @@ def train_model(args):
         auto_insert_metric_name=False,
         enable_version_counter=False,
     )
-    callbacks = [checkpoint_callback] + [TQDMProgressBar(10)]
+    early_stopping_callback = pl.callbacks.early_stopping.EarlyStopping(
+        monitor=metric,
+        patience=5,
+        mode=mode,
+        check_finite=True,
+    )
+    last_checkpoint_callback = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        filename="last",
+        save_last=True,  # This is the key parameter to save the last model
+        auto_insert_metric_name=False,
+        enable_version_counter=False,
+    )
+
+    callbacks = [checkpoint_callback] + [TQDMProgressBar(10)] + [last_checkpoint_callback] 
+
+    if args.early_stopping != None:
+        early_stopping_callback = pl.callbacks.early_stopping.EarlyStopping(
+            monitor=metric,
+            patience=args.early_stopping,
+            mode=mode,
+            check_finite=True,
+        )
+        callbacks += [early_stopping_callback]
+        
     trainer = pl.Trainer(
         max_epochs=args.epochs if not args.DEBUG else 1,
         accelerator="gpu" if not args.DEBUG else "cpu", 

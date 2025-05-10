@@ -421,6 +421,7 @@ def get_data(
     size=-1,
     data_root="./data",
     use_augmentation=True,
+    cls_drop=[],
 ):
     if dataset.startswith("cifar"):
         (
@@ -462,6 +463,23 @@ def get_data(
 
         public_dataset = torch.utils.data.Subset(private_dataset, indices_b)
         private_dataset = torch.utils.data.Subset(private_dataset, indices_a)
+
+    ### NEW CODE!!! ###
+    # Drop classes if specified
+    if cls_drop is not None and len(cls_drop) > 0:
+        cls_drop = set(cls_drop)
+
+        original_dataset = public_dataset.dataset
+        current_indices = public_dataset.indices
+        new_indices = [
+            i
+            for i in current_indices
+            if original_dataset.targets[i] not in cls_drop
+        ]
+        public_dataset = torch.utils.data.Subset(
+            original_dataset, new_indices
+        )
+    ####################
 
     dataset_dict = {
         "private": private_dataset,
@@ -817,6 +835,7 @@ class CustomDataModule(pl.LightningDataModule):
         image_size: int = -1,
         data_root: str = "./data",
         use_augmentation: bool = True,
+        cls_drop: list = [],
     ):
         super().__init__()
 
@@ -827,6 +846,7 @@ class CustomDataModule(pl.LightningDataModule):
         self.image_size = image_size
         self.data_root = data_root
         self.use_augmentation = use_augmentation
+        self.cls_drop = cls_drop
 
     def setup(self, stage: Optional[str] = None) -> None:
         dataset_dict, transform_dict, num_base_classes = get_data(
@@ -835,6 +855,7 @@ class CustomDataModule(pl.LightningDataModule):
             size=self.image_size,
             data_root=self.data_root,
             use_augmentation=self.use_augmentation,
+            cls_drop=self.cls_drop,
         )
 
         self.num_base_classes = num_base_classes

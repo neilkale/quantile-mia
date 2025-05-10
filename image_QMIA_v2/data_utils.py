@@ -82,44 +82,46 @@ def set_transform(dataset, transform):
     return dataset
 
 class PairedCustomCIFAR100(tv_datasets.CIFAR100):
-    def __init__(self, size=-1, mean=None, std=None, *args, **kwargs):
+    def __init__(self, size=-1, base_size=-1, mean=None, std=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if size == -1:
-            size = 32
 
-        self.resize_transform = transforms.Compose(
-            [
-                transforms.Resize(size),
-            ]
-        )
+        if size == -1:
+            self.resize_transform = transforms.Lambda(lambda x: x)
+        else:
+            self.resize_transform = transforms.Compose(
+                [
+                    transforms.Resize(size),
+                ]
+            )
+
+        if base_size == -1:
+            self.base_resize_transform = transforms.Lambda(lambda x: x)
+        else:
+            self.base_resize_transform = transforms.Compose(
+                [
+                    transforms.Resize(base_size),
+                ]
+            )
+
+        if mean is None or std is None:
+            raise ValueError("Mean and std must be specified.")
+        
         self.finishing_transform = transforms.Compose(
             [
                 transforms.ToTensor(),
                 transforms.Normalize(
-                    mean if mean is not None else DATASET_FLAGS.CIFAR10_MEAN,
-                    std if std is not None else DATASET_FLAGS.CIFAR10_STD,
+                    mean, std
                 ),
             ]
         )
-
-        if size != 32:
-            self.base_resize_transform = transforms.Compose(
-                [
-                    transforms.Resize(32),
-                ]
-            )
-            self.base_finishing_transform = transforms.Compose(
-                [
-                    transforms.ToTensor(),
-                    transforms.Normalize(
-                        DATASET_FLAGS.CIFAR10_MEAN,
-                        DATASET_FLAGS.CIFAR10_STD,
-                    )
-                ]
-            )
-        else:
-            self.base_resize_transform = None
-            self.base_finishing_transform = None
+        self.base_finishing_transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean, std
+                )
+            ]
+        )
 
     def __getitem__(self, index: int) -> Tuple[Any, Any, Any]:
         """
@@ -136,57 +138,55 @@ class PairedCustomCIFAR100(tv_datasets.CIFAR100):
         if self.transform is not None:
             img = self.transform(img)
         
-        if self.base_resize_transform is not None:
-            base_img = self.base_finishing_transform(self.base_resize_transform(img))
-            img = self.finishing_transform(self.resize_transform(img))
-        else:
-            img = self.finishing_transform(self.resize_transform(img))
-            base_img = img
+        base_img = self.base_finishing_transform(self.base_resize_transform(img))
+        img = self.finishing_transform(self.resize_transform(img))
 
-        if self.target_transform is not None:
-            target = self.target_transform(target)
+        # if self.target_transform is not None:
+        #     target = self.target_transform(target)
 
         return img, target, base_img
 
 class PairedCustomCIFAR10(tv_datasets.CIFAR10):
-    def __init__(self, size=-1, mean=None, std=None, *args, **kwargs):
+    def __init__(self, size=-1, base_size=-1, mean=None, std=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if size == -1:
-            size = 32
 
-        self.resize_transform = transforms.Compose(
-            [
-                transforms.Resize(size),
-            ]
-        )
+        if size == -1:
+            self.resize_transform = transforms.Lambda(lambda x: x)
+        else:
+            self.resize_transform = transforms.Compose(
+                [
+                    transforms.Resize(size),
+                ]
+            )
+
+        if base_size == -1:
+            self.base_resize_transform = transforms.Lambda(lambda x: x)
+        else:
+            self.base_resize_transform = transforms.Compose(
+                [
+                    transforms.Resize(base_size),
+                ]
+            )
+
+        if mean is None or std is None:
+            raise ValueError("Mean and std must be specified.")
+        
         self.finishing_transform = transforms.Compose(
             [
                 transforms.ToTensor(),
                 transforms.Normalize(
-                    mean if mean is not None else DATASET_FLAGS.CIFAR10_MEAN,
-                    std if std is not None else DATASET_FLAGS.CIFAR10_STD,
+                    mean, std
                 ),
             ]
         )
-
-        if size != 32:
-            self.base_resize_transform = transforms.Compose(
-                [
-                    transforms.Resize(32),
-                ]
-            )
-            self.base_finishing_transform = transforms.Compose(
-                [
-                    transforms.ToTensor(),
-                    transforms.Normalize(
-                        DATASET_FLAGS.CIFAR10_MEAN,
-                        DATASET_FLAGS.CIFAR10_STD,
-                    )
-                ]
-            )
-        else:
-            self.base_resize_transform = None
-            self.base_finishing_transform = None
+        self.base_finishing_transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean, std
+                )
+            ]
+        )
 
     def __getitem__(self, index: int) -> Tuple[Any, Any, Any]:
         """
@@ -215,31 +215,42 @@ class PairedCustomCIFAR10(tv_datasets.CIFAR10):
 
         return img, target, base_img
 
-class PairedImageFolder(tv_datasets.ImageFolder):
-    def __init__(self, size=-1, mean=None, std=None, *args, **kwargs):
+class SortedImageFolder(tv_datasets.ImageFolder):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if size == -1:
-            size = 32
+        self.samples.sort(key=lambda x: x[0])
+        self.imgs = self.samples
 
-        self.resize_transform = transforms.Compose(
-            [
-                transforms.Resize(size),
-            ]
-        )
-        if size != 32:
-            self.base_resize_transform = transforms.Compose(
+class PairedImageFolder(SortedImageFolder):
+    def __init__(self, size=-1, base_size=-1, mean=None, std=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if size == -1:
+            self.resize_transform = transforms.Lambda(lambda x: x)
+        else:
+            self.resize_transform = transforms.Compose(
                 [
-                    transforms.Resize(32),
+                    transforms.Resize(size),
                 ]
             )
+
+        if base_size == -1:
+            self.base_resize_transform = transforms.Lambda(lambda x: x)
         else:
-            self.base_resize_transform = None
+            self.base_resize_transform = transforms.Compose(
+                [
+                    transforms.Resize(base_size),
+                ]
+            )
+
+        if mean is None or std is None:
+            raise ValueError("Mean and std must be specified.")
 
         self.base_finishing_transform = transforms.Compose(
             [
                 transforms.ToTensor(),
                 transforms.Normalize(
-                    DATASET_FLAGS.CIFAR10_MEAN, DATASET_FLAGS.CIFAR10_STD
+                    mean, std
                 ),
             ]
         )
@@ -247,8 +258,7 @@ class PairedImageFolder(tv_datasets.ImageFolder):
             [
                 transforms.ToTensor(),
                 transforms.Normalize(
-                    mean if mean is not None else DATASET_FLAGS.CIFAR10_MEAN,
-                    std if std is not None else DATASET_FLAGS.CIFAR10_STD,
+                    mean, std
                 ),
             ]
         )
@@ -266,22 +276,16 @@ class PairedImageFolder(tv_datasets.ImageFolder):
 
         if self.transform is not None:  # initial augmentation, no resizing
             img = self.transform(img)
-        if self.target_transform is not None:
-            target = self.target_transform(target)
 
-        if self.base_resize_transform is not None:
-            base_img = self.base_finishing_transform(self.base_resize_transform(img))
-            img = self.finishing_transform(self.resize_transform(img))
-        else:
-            img = self.finishing_transform(self.resize_transform(img))
-            base_img = img
+        base_img = self.base_finishing_transform(self.base_resize_transform(img))
+        img = self.finishing_transform(self.resize_transform(img))
 
-        if self.target_transform is not None:
-            target = self.target_transform(target)
+        # if self.target_transform is not None:
+        #     target = self.target_transform(target)
 
         return img, target, base_img
 
-def get_cifar(locator="cifar10/0_16", image_size=-1, data_root="./data"):
+def get_cifar(locator="cifar10/0_16", image_size=-1, base_image_size=-1, data_root="./data"):
     if locator.split("/")[0] == "cifar10":
         dataset_name = "cifar10"
         dataset_fn = PairedCustomCIFAR10
@@ -306,7 +310,12 @@ def get_cifar(locator="cifar10/0_16", image_size=-1, data_root="./data"):
     transform_train = transforms.Compose(
         [
             transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip()]
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(degrees=10),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            transforms.RandomGrayscale(p=0.1),
+            transforms.RandomPerspective(distortion_scale=0.2, p=0.5),
+        ]
     )
     transform_test = None
     transform_vanilla = None
@@ -319,6 +328,7 @@ def get_cifar(locator="cifar10/0_16", image_size=-1, data_root="./data"):
     # Create the datasets
     private_public_dataset = dataset_fn(
         size=image_size,
+        base_size=base_image_size,
         mean=mean,
         std=std,
         root=data_root,
@@ -328,6 +338,7 @@ def get_cifar(locator="cifar10/0_16", image_size=-1, data_root="./data"):
     )
     test_dataset = dataset_fn(
         size=image_size,
+        base_size=base_image_size,
         mean=mean,
         std=std,
         root=data_root,
@@ -366,21 +377,22 @@ def get_cifar(locator="cifar10/0_16", image_size=-1, data_root="./data"):
 
     return private_dataset, public_dataset, test_dataset, transform_dict
 
-def get_cinic10(locator="cinic10/0_16", image_size=-1, data_root="./data"):
+def get_cinic10(locator="cinic10/0_16", image_size=-1, base_image_size=-1, data_root="./data"):
     dataset_name = locator.split("/")[0]
     pkeep = 0.5
     experiment_idx, num_experiment = (int(n) for n in locator.split("/")[1].split("_"))
 
-    if image_size == -1:
-        image_size = 32
     mean, std = DATASET_FLAGS.CINIC10_MEAN, DATASET_FLAGS.CINIC10_STD
 
     # Create the train/test transforms, resizing is done in the dataset class
-    transform_train = transforms.Compose(
-        [
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip()]
-    )
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomRotation(degrees=10),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        transforms.RandomGrayscale(p=0.1),
+        transforms.RandomPerspective(distortion_scale=0.2, p=0.5),
+    ])
     transform_test = None
     transform_vanilla = None
 
@@ -388,6 +400,7 @@ def get_cinic10(locator="cinic10/0_16", image_size=-1, data_root="./data"):
 
     private_public_dataset = PairedImageFolder(
         size=image_size,
+        base_size=base_image_size,
         mean=mean,
         std=std,
         root=os.path.join(root_dir, "trainval"),
@@ -396,6 +409,7 @@ def get_cinic10(locator="cinic10/0_16", image_size=-1, data_root="./data"):
 
     test_dataset = PairedImageFolder(
         size=image_size,
+        base_size=base_image_size,
         mean=mean,
         std=std,
         root=os.path.join(root_dir, "test"),
@@ -438,7 +452,7 @@ def get_cinic10(locator="cinic10/0_16", image_size=-1, data_root="./data"):
     return private_dataset, public_dataset, test_dataset, transform_dict
 
 def get_imagenet(
-    locator="imagenet-1k/0_16", image_size=-1, data_root="./data",
+    locator="imagenet-1k/0_16", image_size=-1, base_image_size=-1, data_root="./data",
 ):
     mean = DATASET_FLAGS.IMAGENET_MEAN
     std = DATASET_FLAGS.IMAGENET_STD
@@ -446,44 +460,49 @@ def get_imagenet(
     experiment_idx, num_experiment = (int(n) for n in locator.split("/")[1].split("_"))
     dataset_name = locator.split("/")[0]
 
-    if image_size == -1:
-        image_size = 224
-    resize_size = int(256.0 / 224 * image_size)
-
     # Get train/test transforms
     transform_train = transforms.Compose(
         [
-            transforms.Resize(resize_size),
-            transforms.RandomCrop(image_size),
+            transforms.Resize(256),
+            transforms.RandomCrop(256, padding=32),
             transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
         ]
     )
     transform_test = transforms.Compose(
         [
-            transforms.Resize(resize_size),
-            transforms.CenterCrop(image_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
+            transforms.Resize(256),
+            transforms.CenterCrop(256),
         ]
     )
-    transform_dict = {
-        "train": transform_train,
-        "test": transform_test,
-        "vanilla": transform_test,
-    }
+    transform_vanilla = transforms.Compose(
+        [
+            transforms.Resize(256),
+            transforms.CenterCrop(256),
+        ]
+    )
 
     root_dir = os.path.join(data_root, dataset_name)
-    private_public_dataset = tv_datasets.ImageFolder(
-        os.path.join(root_dir, "train"), transform=transform_train
+    
+    full_dataset = PairedImageFolder(
+        size=image_size,
+        base_size=base_image_size,
+        mean=mean,
+        std=std,
+        root=os.path.join(root_dir, "train"),
+        transform=transform_train,
     )
-    test_dataset = tv_datasets.ImageFolder(
-        os.path.join(root_dir, "val"), transform=transform_test
+    full_dataset_test = PairedImageFolder(
+        size=image_size,
+        base_size=base_image_size,
+        mean=mean,
+        std=std,
+        root=os.path.join(root_dir, "train"),
+        transform=transform_test,
     )
 
-    # get private/public split for experiment
-    pkeep = 0.5
+    # get private/public/test split for experiment
+    pkeep_private = 0.4
+    pkeep_public = 0.4
 
     master_keep_path = os.path.join(
         data_root, dataset_name, "{:d}".format(num_experiment), "master_keep.npy"
@@ -494,24 +513,34 @@ def get_imagenet(
         os.makedirs(os.path.dirname(master_keep_path), exist_ok=True)
         with temp_seed(DATASET_FLAGS.DATA_SEED):
             master_keep = np.random.uniform(
-                size=(num_experiment, len(private_public_dataset)), low=0, high=1
+                size=(num_experiment, len(full_dataset)), low=0, high=1
             )
         order = master_keep.argsort(0)
-        master_keep = order < int(pkeep * num_experiment)
+
+        master_keep = np.zeros((num_experiment, len(full_dataset)), dtype=int)
+        split1_threshold = int(pkeep_private * num_experiment)
+        master_keep[order < split1_threshold] = 0
+
+        split2_threshold = int((pkeep_private + pkeep_public) * num_experiment)
+        master_keep[(order >= split1_threshold) & (order < split2_threshold)] = 1
+
+        master_keep[order >= split2_threshold] = 2
         np.save(master_keep_path, master_keep)
 
-    if int(experiment_idx) == int(num_experiment):
-        print("SPECIAL-CASING THIS IS THE FULL EVALUATION/TRAINING DATASET")
-        private_indices = list(np.arange(start=0, stop=32))
-        public_indices = list(np.arange(start=0, stop=len(private_public_dataset)))
+    keep = np.array(master_keep[experiment_idx], dtype=int)
+    private_indices = list(np.where(keep == 0)[0])  # First 40%
+    public_indices = list(np.where(keep == 1)[0])  # Next 40%
+    test_indices = list(np.where(keep == 2)[0])  # Final 20%
 
-    else:
-        keep = np.array(master_keep[experiment_idx], dtype=bool)
-        private_indices = list(np.where(keep)[0])
-        public_indices = list(np.where(~keep)[0])
+    public_dataset = Subset(full_dataset, public_indices)
+    private_dataset = Subset(full_dataset, private_indices)
+    test_dataset = Subset(full_dataset_test, test_indices)
 
-    public_dataset = Subset(private_public_dataset, public_indices)
-    private_dataset = Subset(private_public_dataset, private_indices)
+    transform_dict = {
+        "train": transform_train,
+        "test": transform_test,
+        "vanilla": transform_vanilla,
+    }
 
     return private_dataset, public_dataset, test_dataset, transform_dict
 
@@ -519,6 +548,7 @@ def get_data(
     split_frac: float,
     dataset: str,
     image_size: int,
+    base_image_size: int,
     data_root: str,
     cls_drop: Optional[list] = None,
 ):
@@ -531,21 +561,21 @@ def get_data(
             public_dataset,
             test_dataset,
             transform_dict,
-        ) = get_cifar(locator=dataset, image_size=image_size, data_root=data_root)
+        ) = get_cifar(locator=dataset, image_size=image_size, base_image_size=base_image_size, data_root=data_root)
     elif dataset.startswith("cinic10"):
         (
             private_dataset,
             public_dataset,
             test_dataset,
             transform_dict,
-        ) = get_cinic10(locator=dataset, image_size=image_size, data_root=data_root)
+        ) = get_cinic10(locator=dataset, image_size=image_size, base_image_size=base_image_size, data_root=data_root)
     elif dataset.startswith("imagenet"):
         (
             private_dataset,
             public_dataset,
             test_dataset,
             transform_dict,
-        ) = get_imagenet(locator=dataset, image_size=image_size, data_root=data_root)
+        ) = get_imagenet(locator=dataset, image_size=image_size, base_image_size=base_image_size, data_root=data_root)
     else:
         raise NotImplementedError(
             f"Dataset {dataset} not supported. Please use cifar10, cifar100, cinic10, or imagenet."
@@ -593,6 +623,7 @@ class CustomDataModule(pl.LightningDataModule):
         batch_size: int = 16,
         num_workers: int = 16,
         image_size: int = -1,
+        base_image_size: int = -1,
         data_root: str = "./data",
         use_augmentation: bool = True,
         cls_drop: Optional[list] = None,
@@ -604,6 +635,7 @@ class CustomDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.image_size = image_size
+        self.base_image_size = base_image_size
         self.data_root = data_root
         self.use_augmentation = use_augmentation
         self.cls_drop = cls_drop
@@ -618,22 +650,26 @@ class CustomDataModule(pl.LightningDataModule):
             split_frac=0.5,
             dataset=self.dataset_name,
             image_size=self.image_size,
+            base_image_size=self.base_image_size,
             data_root=self.data_root,
             cls_drop=self.cls_drop,
         )
 
         stage = self.stage if self.stage is not None else stage
         if stage == "base":
+            print("Base stage data")
             # Base model is trained on the private dataset
             self.train_dataset = dataset_dict["private"]
             self.val_dataset = dataset_dict["test"]
             self.test_dataset = dataset_dict["public"]
         elif stage == "mia":
+            print("MIA stage data")
             # MIA model is trained on the public dataset
             self.train_dataset = dataset_dict["public"]
             self.val_dataset = dataset_dict["test"]
             self.test_dataset = dataset_dict["private"]
         elif stage == "eval":
+            print("Eval stage data")
             # For evaluating the MIA model, test_dataset contains the base model train data and val_dataset contains heldout public data.
             self.train_dataset = dataset_dict["public"]
             self.val_dataset = dataset_dict["test"]

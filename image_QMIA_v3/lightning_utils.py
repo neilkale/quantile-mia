@@ -236,6 +236,7 @@ class LightningQMIA(pl.LightningModule):
         return_mean_logstd=False,
         use_target_dependent_scoring=False,
         use_target_inputs=False,
+        cls_drop=[],
         **kwargs,
     ):
         super().__init__()

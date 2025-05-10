@@ -172,6 +172,13 @@ def argparser():
         default=False,
         help="just for plotting, stick to false",
     )
+    parser.add_argument(
+        "--cls_drop",
+        type=int,
+        nargs="*",
+        default=[],
+        help="drop classes from the dataset, e.g. --cls_drop 1 3 7",
+    )
 
     args = parser.parse_args()
     seed = args.seed
@@ -237,6 +244,7 @@ if __name__ == "__main__":
         use_gaussian=args.use_gaussian,
         use_target_dependent_scoring=args.use_target_dependent_scoring,
         use_target_inputs=args.use_target_inputs,
+        cls_drop=args.cls_drop,
     )
     datamodule = CustomDataModule(
         dataset_name=args.dataset,
@@ -245,6 +253,7 @@ if __name__ == "__main__":
         image_size=args.image_size,
         batch_size=args.batch_size,
         data_root=args.data_root,
+        cls_drop=args.cls_drop,
     )
     metric = "ptl/val_loss"
     mode = "min"

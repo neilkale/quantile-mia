@@ -6,6 +6,7 @@ from optimizer_utils import build_optimizer
 from scheduler_utils import build_scheduler
 from train_utils import (
     gaussian_loss_fn,
+    huber_gaussian_loss_fn,
     top_two_margin_score_fn,)
 
 from timm.utils import accuracy
@@ -35,8 +36,9 @@ def get_optimizer_params(optimizer_params):
 
 def get_batch(batch):
     if len(batch) == 2:
-        samples, targets = batch
-        base_samples = samples
+        raise ValueError(
+            "Batch should contain 3 elements: samples, targets, and base_samples"
+        )
     else:
         samples, targets, base_samples = batch
     return samples, targets, base_samples
@@ -61,7 +63,7 @@ class LightningBaseNet(pl.LightningModule):
         self,
         architecture,
         num_classes,
-        image_size=-1,
+        base_image_size=-1,
         optimizer_params=None,
         loss_fn="cross_entropy",
         label_smoothing=0.0,
@@ -79,7 +81,7 @@ class LightningBaseNet(pl.LightningModule):
         self.save_hyperparameters(
             "architecture",
             "num_classes",
-            "image_size",
+            "base_image_size",
             "optimizer_params",
             "loss_fn"
         )
@@ -93,7 +95,7 @@ class LightningBaseNet(pl.LightningModule):
     
     def training_step(self, batch, batch_idx: int):
         samples, targets, base_samples = get_batch(batch)
-        logits = self.forward(samples)
+        logits = self.forward(base_samples)
         loss = self.loss_fn(logits, targets).mean()
         acc1, acc5 = accuracy(logits, targets, topk=(1, 5))
 
@@ -110,7 +112,7 @@ class LightningBaseNet(pl.LightningModule):
     def validation_step(self, batch, batch_idx: int):
         samples, targets, base_samples = get_batch(batch)
 
-        logits = self.forward(samples)
+        logits = self.forward(base_samples)
         loss = self.loss_fn(logits, targets).mean()
         acc1, acc5 = accuracy(logits, targets, topk=(1, 5))
 
@@ -139,7 +141,7 @@ class LightningBaseNet(pl.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         samples, targets, base_samples = get_batch(batch)
-        logits = self.forward(samples)
+        logits = self.forward(base_samples)
         loss = self.loss_fn(logits, targets)
         return logits, targets, loss
 
@@ -193,6 +195,7 @@ class LightningQMIA(pl.LightningModule):
         architecture,
         base_architecture,
         image_size=-1,
+        base_image_size=-1,
         hidden_dims=None,
         num_classes=10,
         base_model_dir=None,
@@ -207,27 +210,41 @@ class LightningQMIA(pl.LightningModule):
 
         print("Loading base model: {} from {}\nLoading attack model: {}".format(
             base_architecture, base_model_dir, architecture))
-        model, base_model = model_setup(
-            architecture=architecture,
-            base_architecture=base_architecture,
-            image_size=image_size,
-            n_outputs=2,
-            num_base_classes=self.num_base_classes,
+
+        # Get forward function of regression model
+        model = get_model(
+            architecture,
+            2,
+            False,
             hidden_dims=hidden_dims,
-            freeze_embedding=False,
-            base_model_dir=base_model_dir,
-            extra_inputs=0
         )
+
+        ## Create base model, load params from pickle, then define the scoring function and the logit embedding function
+        base_model = get_model(
+            base_architecture, self.num_base_classes, freeze_embedding=False
+        )
+        if base_model_dir is not None:
+            base_state_dict = load_pickle(
+                name="model.pickle",
+                map_location=next(base_model.parameters()).device,
+                base_model_dir=base_model_dir,
+            )
+            base_model.load_state_dict(base_state_dict)
+        else:
+            raise ValueError("Base model directory is not provided")
 
         self.model = model
         self.base_model = base_model
         for param in self.base_model.parameters():
             param.requires_grad = False
+        self.base_model.eval()
 
         self.optimizer_params = get_optimizer_params(optimizer_params)
 
         if loss_fn == "gaussian":
             self.loss_fn = gaussian_loss_fn
+        elif loss_fn == "huber_gaussian":
+            self.loss_fn = huber_gaussian_loss_fn
         else:
             raise ValueError(f"Unknown loss function: {loss_fn}")
         
@@ -337,45 +354,6 @@ class LightningQMIA(pl.LightningModule):
             }
         return opt_and_scheduler_config
         
-
-def model_setup(
-    architecture,
-    base_architecture,
-    image_size,
-    n_outputs,
-    num_base_classes,
-    hidden_dims,
-    freeze_embedding,
-    base_model_dir=None,
-    extra_inputs=None,
-):
-    # Get forward function of regression model
-    model = get_model(
-        architecture,
-        n_outputs,
-        image_size,
-        freeze_embedding,
-        hidden_dims=hidden_dims,
-        extra_inputs=extra_inputs,
-    )
-
-    ## Create base model, load params from pickle, then define the scoring function and the logit embedding function
-    base_model = get_model(
-        base_architecture, num_base_classes, image_size, freeze_embedding=False
-    )
-    if base_model_dir is not None:
-        base_state_dict = load_pickle(
-            name="model.pickle",
-            map_location=next(base_model.parameters()).device,
-            base_model_dir=base_model_dir,
-        )
-        base_model.load_state_dict(base_state_dict)
-    else:
-        raise ValueError(
-            "base_model_path should be provided to load the base model weights"
-        )
-
-    return model, base_model
 
 def load_pickle(name="model.pickle", map_location=None, base_model_dir=None):
     # pickle_path = os.path.join(args.log_root, args.dataset, name.replace('/', '_'))

@@ -2,7 +2,7 @@ export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 MODEL_DIR=./models/
 DATA_DIR=../image_QMIA_v3/data/
-BASE_ARCHITECTURE=cifar-resnet-50 #resnet-50 #
+BASE_ARCHITECTURE=cifar-resnet-18 #resnet-50 #
 QMIA_ARCHITECTURE=facebook/convnext-large-224-22k-1k #cifar-resnet-18 #convnext-tiny #
 
 # Set these variables

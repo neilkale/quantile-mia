@@ -10,7 +10,7 @@ from data_utils import CustomDataModule
 
 import pytorch_lightning as pl
 from pytorch_lightning.strategies import FSDPStrategy
-from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
+from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar, EarlyStopping
 from lightning_utils import LightningBaseNet
 
 def argparser():
@@ -37,7 +37,13 @@ def argparser():
         "--image_size",
         type=int,
         default=-1,
-        help="image input size, set to -1 to use dataset's default value",
+        help="image input size to model, set to -1 to use dataset's default value",
+    )
+    parser.add_argument(
+        "--base_image_size",
+        type=int,
+        default=-1,
+        help="image input size to base model, set to -1 to use dataset's default value",
     )
     parser.add_argument(
         "--architecture", type=str, default="cifar-resnet-50", help="Model Type "
@@ -141,6 +147,7 @@ def train_model(config, args, callbacks=None, rerun=False):
         dataset_name=args.dataset,
         num_workers=16,
         image_size=args.image_size,
+        base_image_size=args.base_image_size,
         batch_size=args.batch_size,
         data_root=args.data_root,
         stage=args.data_mode,
@@ -151,6 +158,7 @@ def train_model(config, args, callbacks=None, rerun=False):
         num_classes=args.num_base_classes,
         optimizer_params=config,
         label_smoothing=config["label_smoothing"],
+        base_image_size=args.base_image_size,
     )
     
     checkpoint_callback = ModelCheckpoint(
@@ -162,7 +170,22 @@ def train_model(config, args, callbacks=None, rerun=False):
         filename="best",
         enable_version_counter=False,
     )
-    callbacks = callbacks + [checkpoint_callback] + [TQDMProgressBar()]
+    last_checkpoint_callback = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        save_top_k=1,
+        save_last=True,
+        auto_insert_metric_name=False,
+        filename="last",
+        enable_version_counter=False,
+    )
+    early_stopping_callback = EarlyStopping(
+        monitor="ptl/val_acc1",
+        patience=10,
+        mode="max",
+    )
+
+
+    callbacks = callbacks + [last_checkpoint_callback] + [TQDMProgressBar()] + [checkpoint_callback] + [early_stopping_callback]
 
     trainer = pl.Trainer(
         max_epochs=config["epochs"] if not args.DEBUG else 1,
@@ -208,7 +231,6 @@ if __name__ == "__main__":
         "gradient_clip_val": args.grad_clip,
         "label_smoothing": args.label_smoothing,
         "batch_size": args.batch_size,
-        "image_size": args.image_size,
     }
 
     train_model(

@@ -221,7 +221,6 @@ def get_cifar_resnet_model(
 def get_model(
     architecture,
     n_outputs,
-    image_size=None,
     freeze_embedding=False,
     hidden_dims=[],
     extra_inputs=None,
