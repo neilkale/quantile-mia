@@ -148,6 +148,13 @@ def argparser():
         help="rerun training even if checkpoint exists",
     )
 
+    parser.add_argument(
+        "--save_steps",
+        type=int,
+        default=None,
+        help="save checkpoint every X steps, None to disable",
+    )
+
     args = parser.parse_args()
     seed = args.seed
     torch.manual_seed(seed)
@@ -254,7 +261,7 @@ def train_model(args):
         enable_version_counter=False,
     )
 
-    callbacks = [checkpoint_callback] + [TQDMProgressBar(10)] + [last_checkpoint_callback] 
+    callbacks = [TQDMProgressBar(10)] + [last_checkpoint_callback] # + [checkpoint_callback]
 
     if args.early_stopping != None:
         early_stopping_callback = pl.callbacks.early_stopping.EarlyStopping(
@@ -264,6 +271,17 @@ def train_model(args):
             check_finite=True,
         )
         callbacks += [early_stopping_callback]
+
+    if args.save_steps != None:
+        step_checkpoint_callback = ModelCheckpoint(
+            dirpath=checkpoint_dir,
+            filename="step_{step}",  # This will include the step number in the filename
+            every_n_epochs=args.save_steps,
+            save_top_k=-1,  # Save all checkpoints (no limit)
+            auto_insert_metric_name=False,
+            enable_version_counter=False,
+        )
+        callbacks += [step_checkpoint_callback]
         
     trainer = pl.Trainer(
         max_epochs=args.epochs if not args.DEBUG else 1,

@@ -16,8 +16,8 @@ python3 train_base.py --dataset=$BASE_DATASET --architecture=$BASE_ARCHITECTURE 
 
 # Train QMIA
 python3 train_mia.py --attack_dataset=$ATTACK_DATASET --base_model_dataset=$BASE_DATASET --architecture=$QMIA_ARCHITECTURE --base_architecture=$BASE_ARCHITECTURE --model_root=$MODEL_DIR --data_root=$DATA_DIR \
---batch_size=16 --image_size=224 --epochs=30 --score_fn top_two_margin --loss_fn gaussian --cls_drop "${DROPPED_CLASSES[@]}" --rerun
+--batch_size=16 --image_size=224 --epochs=30 --score_fn top_two_margin --loss_fn gaussian --cls_drop "${DROPPED_CLASSES[@]}"
 
 # Evaluate performance
 python3 evaluate_mia.py --attack_dataset=$ATTACK_DATASET --base_model_dataset=$BASE_DATASET --architecture=$QMIA_ARCHITECTURE --base_architecture=$BASE_ARCHITECTURE --model_root=$MODEL_DIR --data_root=$DATA_DIR \
---batch_size=128 --image_size=224 --score_fn top_two_margin --loss_fn gaussian --checkpoint best_val_loss --cls_drop "${DROPPED_CLASSES[@]}" --rerun
+--batch_size=128 --image_size=224 --score_fn top_two_margin --loss_fn gaussian --checkpoint last --cls_drop "${DROPPED_CLASSES[@]}" --rerun

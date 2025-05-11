@@ -141,8 +141,8 @@ class PairedCustomCIFAR100(tv_datasets.CIFAR100):
         base_img = self.base_finishing_transform(self.base_resize_transform(img))
         img = self.finishing_transform(self.resize_transform(img))
 
-        # if self.target_transform is not None:
-        #     target = self.target_transform(target)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
 
         return img, target, base_img
 
@@ -292,7 +292,7 @@ def get_cifar(locator="cifar10/0_16", image_size=-1, base_image_size=-1, data_ro
         mean, std = DATASET_FLAGS.CIFAR10_MEAN, DATASET_FLAGS.CIFAR10_STD
         if image_size == -1:
             image_size = 32
-    elif locator.split("/")[0] == "cifar100":
+    elif locator.split("/")[0] == "cifar100" or locator.split("/")[0] == "cifar20":
         dataset_name = "cifar100"
         dataset_fn = PairedCustomCIFAR100
         mean, std = DATASET_FLAGS.CIFAR100_MEAN, DATASET_FLAGS.CIFAR100_STD
@@ -300,7 +300,7 @@ def get_cifar(locator="cifar10/0_16", image_size=-1, base_image_size=-1, data_ro
             image_size = 32
     else:
         raise NotImplementedError(
-            f"Dataset {locator} not supported. Please use cifar10, cifar100, cinic10, or imagenet."
+            f"Dataset {locator} not supported. Please use cifar10, cifar20 (cifar100 superclasses), cifar100, cinic10, or imagenet."
         )
     
     pkeep = 0.5
@@ -325,6 +325,10 @@ def get_cifar(locator="cifar10/0_16", image_size=-1, base_image_size=-1, data_ro
         "vanilla": transform_vanilla,
     }
 
+    target_transform = None
+    if locator.split("/")[0] == "cifar20":
+        target_transform = lambda x: x // 5
+
     # Create the datasets
     private_public_dataset = dataset_fn(
         size=image_size,
@@ -335,6 +339,7 @@ def get_cifar(locator="cifar10/0_16", image_size=-1, base_image_size=-1, data_ro
         train=True,
         download=True,
         transform=transform_train,
+        target_transform=target_transform,
     )
     test_dataset = dataset_fn(
         size=image_size,
@@ -345,6 +350,7 @@ def get_cifar(locator="cifar10/0_16", image_size=-1, base_image_size=-1, data_ro
         train=False,
         download=True,
         transform=transform_test,
+        target_transform=target_transform,
     )
 
     # Save the data split

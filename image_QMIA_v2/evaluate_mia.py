@@ -335,6 +335,8 @@ def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="publi
         MIN_X = 1e-4
     if args.num_base_classes == 100:
         MIN_X = 1e-3
+    if args.num_base_classes == 1000:
+        MIN_X = 1e-4
 
     test_pred_scores, test_target_scores = test_preds[0], test_preds[1]
     val_pred_scores, val_target_scores = val_preds[0], val_preds[1]
@@ -1385,15 +1387,28 @@ if __name__ == "__main__":
             titles=[f"Class {i}" for i in range(args.num_base_classes)],
             save_path="roc_curve_per_class",
         )
+    else:
+        test_preds_per_cls = []
+        val_preds_per_cls = []
+        for cls in range(10):
+            test_mask = torch.tensor([label.item() == cls for label in test_preds[3]])
+            test_preds_per_cls.append([pred[test_mask] for pred in test_preds])
+            val_mask = torch.tensor([label.item() == cls for label in val_preds[3]])
+            val_preds_per_cls.append([pred[val_mask] for pred in val_preds])
+        create_roc_curve_grid(
+            [(test_preds_per_cls[i], val_preds_per_cls[i]) for i in range(10)],
+            titles=[f"Class {i}" for i in range(args.num_base_classes)],
+            save_path="roc_curve_per_class",
+        )
 
     print("ROC curves plotted and saved.")
 
-    print("Plotting scores per class...")
-    plot_scores_per_class(test_preds, label="private", plot_type="cdf")
-    plot_scores_per_class(val_preds, label="public", plot_type="cdf")
-    plot_scores_per_class(test_preds, label="private", plot_type="violin")
-    plot_scores_per_class(val_preds, label="public", plot_type="violin")
-    print("Scores per class plotted and saved.")
+    # print("Plotting scores per class...")
+    # plot_scores_per_class(test_preds, label="private", plot_type="cdf")
+    # plot_scores_per_class(val_preds, label="public", plot_type="cdf")
+    # plot_scores_per_class(test_preds, label="private", plot_type="violin")
+    # plot_scores_per_class(val_preds, label="public", plot_type="violin")
+    # print("Scores per class plotted and saved.")
 
     print("Computing accuracies...")
     compute_accuracies(test_preds, val_preds)
