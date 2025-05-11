@@ -394,10 +394,7 @@ def get_cinic10(locator="cinic10/0_16", image_size=-1, base_image_size=-1, data_
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(p=0.5),
-        # transforms.RandomRotation(degrees=10),
-        # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
-        # transforms.RandomGrayscale(p=0.1),
-        # transforms.RandomPerspective(distortion_scale=0.2, p=0.5),
+        transforms.RandAugment(num_ops=2, magnitude=9),
     ])
     transform_test = None
     transform_vanilla = None

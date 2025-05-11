@@ -128,6 +128,12 @@ def argparser():
         default=[],
         help="drop classes from the dataset, e.g. --cls_drop 1 3 7",
     )
+    parser.add_argument(
+        "--cls_drop_range",
+        type=str,
+        default=None,
+        help="drop classes from the dataset, e.g. --cls_drop_range 0-500",
+    )
 
     parser.add_argument(
         "--early_stopping",
@@ -165,12 +171,20 @@ def argparser():
     if args.attack_dataset is None:
         args.attack_dataset = args.base_model_dataset
 
-    cls_drop_str = (
-        "".join(str(c) for c in args.cls_drop)
-        if args.cls_drop
-        else "none"
-    )
+    if args.cls_drop and args.cls_drop_range:
+        raise ValueError(
+            "You can only specify one of --cls_drop and --cls_drop_range"
+        )
     
+    if args.cls_drop:
+        cls_drop_str = "".join(str(c) for c in args.cls_drop)
+    elif args.cls_drop_range:
+        start, end = map(int, args.cls_drop_range.split("-"))
+        cls_drop_str = f"{start}to{end}"
+        args.cls_drop = list(range(start, end))
+    else:
+        cls_drop_str = "none"
+
     args.attack_checkpoint_path = os.path.join(
         args.model_root,
         "mia",
@@ -194,6 +208,8 @@ def argparser():
         args.num_base_classes = 100
     elif "imagenet-1k" in args.base_model_dataset.lower():
         args.num_base_classes = 1000
+    elif "cifar20" in args.base_model_dataset.lower():
+        args.num_base_classes = 20
     else:
         args.num_base_classes = 10
 
@@ -275,7 +291,7 @@ def train_model(args):
     if args.save_steps != None:
         step_checkpoint_callback = ModelCheckpoint(
             dirpath=checkpoint_dir,
-            filename="step_{step}",  # This will include the step number in the filename
+            filename="epoch_{epoch}",  # This will include the step number in the filename
             every_n_epochs=args.save_steps,
             save_top_k=-1,  # Save all checkpoints (no limit)
             auto_insert_metric_name=False,
@@ -303,7 +319,7 @@ if __name__ == "__main__":
     args = argparser()
 
     if (
-        os.path.exists(os.path.join(args.attack_checkpoint_path, "best_val_loss.ckpt"))
+        os.path.exists(os.path.join(args.attack_checkpoint_path, "last.ckpt"))
         and not args.rerun
     ):
         print(f"Checkpoint already exists at {args.attack_checkpoint_path}. Skipping attack model training.")

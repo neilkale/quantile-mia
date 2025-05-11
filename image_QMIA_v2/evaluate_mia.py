@@ -107,6 +107,12 @@ def argparser():
         default=[],
         help="drop classes from the dataset, e.g. --cls_drop 1 3 7",
     )
+    parser.add_argument(
+        "--cls_drop_range",
+        type=str,
+        default=None,
+        help="drop classes from the dataset, e.g. --cls_drop_range 0-500",
+    )
 
     parser.add_argument(
         "--DEBUG",
@@ -128,11 +134,19 @@ def argparser():
     if args.attack_dataset is None:
         args.attack_dataset = args.base_model_dataset
 
-    cls_drop_str = (
-        "".join(str(c) for c in args.cls_drop)
-        if args.cls_drop
-        else "none"
-    )
+    if args.cls_drop and args.cls_drop_range:
+        raise ValueError(
+            "You can only specify one of --cls_drop and --cls_drop_range"
+        )
+    
+    if args.cls_drop:
+        cls_drop_str = "".join(str(c) for c in args.cls_drop)
+    elif args.cls_drop_range:
+        start, end = map(int, args.cls_drop_range.split("-"))
+        cls_drop_str = f"{start}to{end}"
+        args.cls_drop = list(range(start, end))
+    else:
+        cls_drop_str = "none"
     
     args.attack_checkpoint_path = os.path.join(
         args.model_root,
@@ -427,8 +441,12 @@ def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="publi
 def create_roc_curve_grid(test_val_preds_list, titles, save_path="roc_curve_grid"):
     # Create a grid of subplots
     n = len(test_val_preds_list)
-    cols = int(np.ceil(n / 2))
-    fig, axes = plt.subplots(2, cols, figsize=(5 * cols, 10))
+    if len(titles) <= 10:
+        rows = 2
+    else:
+        rows = 4
+    cols = int(np.ceil(n / rows))
+    fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 5 * rows))
     axes = axes.flatten() if n > 1 else [axes]
     
     for i, (test_preds, val_preds, title) in enumerate(zip(
@@ -1385,6 +1403,20 @@ if __name__ == "__main__":
         create_roc_curve_grid(
             [(test_preds_per_cls[i], val_preds_per_cls[i]) for i in range(args.num_base_classes)],
             titles=[f"Class {i}" for i in range(args.num_base_classes)],
+            save_path="roc_curve_per_class",
+        )
+    elif args.num_base_classes == 100 and args.attack_dataset.startswith("cinic10"):
+        test_preds_per_cls = []
+        val_preds_per_cls = []
+        for cls in range(20):
+            cls_list = [i for i in range(cls*5, cls*5+5)]
+            test_mask = torch.tensor([label.item() in cls_list for label in test_preds[3]])
+            test_preds_per_cls.append([pred[test_mask] for pred in test_preds])
+            val_mask = torch.tensor([label.item() in cls_list for label in val_preds[3]])
+            val_preds_per_cls.append([pred[val_mask] for pred in val_preds])
+        create_roc_curve_grid(
+            [(test_preds_per_cls[i], val_preds_per_cls[i]) for i in range(20)],
+            titles=[f"Superclass {i}" for i in range(20)],
             save_path="roc_curve_per_class",
         )
     else:

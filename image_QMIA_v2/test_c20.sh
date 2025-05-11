@@ -6,9 +6,9 @@ BASE_ARCHITECTURE=cifar-resnet-18 #resnet-50 #
 QMIA_ARCHITECTURE=facebook/convnext-tiny-224 #facebook/convnext-large-224-22k-1k #cifar-resnet-18 #
 
 # Set these variables
-BASE_DATASET=cifar100/0_16 #imagenet-1k/0_16 #
-ATTACK_DATASET=cifar100/0_16 #imagenet-1k/0_16 #
-DROPPED_CLASSES=(5 6 7 8 9)
+BASE_DATASET=cifar20/0_16 #imagenet-1k/0_16 #
+ATTACK_DATASET=cifar20/0_16 #imagenet-1k/0_16 #
+DROPPED_CLASSES=(1)
 
 # Train base model
 python train_base.py --dataset=$BASE_DATASET --architecture=$BASE_ARCHITECTURE --model_root=$MODEL_DIR --data_root=$DATA_DIR \

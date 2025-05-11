@@ -113,6 +113,8 @@ def argparser():
         args.num_base_classes = 100
     elif "imagenet-1k" in args.dataset.lower():
         args.num_base_classes = 1000
+    elif "cifar20" in args.dataset.lower():
+        args.num_base_classes = 20
     else:
         args.num_base_classes = 10
 
