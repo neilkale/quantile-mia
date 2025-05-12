@@ -181,6 +181,8 @@ def argparser():
         args.num_base_classes = 100
     elif "imagenet-1k" in args.base_model_dataset.lower():
         args.num_base_classes = 1000
+    elif "cifar20" in args.base_model_dataset.lower():
+        args.num_base_classes = 20
     else:
         args.num_base_classes = 10
 
@@ -271,7 +273,6 @@ def aggregate_predictions(results_path):
     # print("Original prediction files removed")
 
 
-
 def evaluate_mia(args, rerun=False):
     if os.path.exists(args.attack_results_path) and not rerun:
         print(f"Results already exist at {args.attack_results_path}.")
@@ -347,6 +348,8 @@ def plot_roc_curve(test_preds, val_preds, test_label="private", val_label="publi
     
     if args.num_base_classes == 10:
         MIN_X = 1e-4
+    if args.num_base_classes == 20:
+        MIN_X = 1e-3
     if args.num_base_classes == 100:
         MIN_X = 1e-3
     if args.num_base_classes == 1000:
@@ -1358,7 +1361,6 @@ def compute_accuracies(test_preds, val_preds):
         f.write("Train (Private) Accuracy: {:.4f}\n".format(test_acc))
         f.write("Test (Public) Accuracy: {:.4f}\n".format(val_acc))
     
-
 if __name__ == "__main__":
     args = argparser()
 
@@ -1417,6 +1419,33 @@ if __name__ == "__main__":
         create_roc_curve_grid(
             [(test_preds_per_cls[i], val_preds_per_cls[i]) for i in range(20)],
             titles=[f"Superclass {i}" for i in range(20)],
+            save_path="roc_curve_per_class",
+        )
+    elif args.num_base_classes == 100:
+        test_preds_per_cls = []
+        val_preds_per_cls = []
+        for cls in range(20):
+            cls_list = [i for i in range(cls*5, cls*5+5)]
+            test_mask = torch.tensor([label.item() in cls_list for label in test_preds[3]])
+            test_preds_per_cls.append([pred[test_mask] for pred in test_preds])
+            val_mask = torch.tensor([label.item() in cls_list for label in val_preds[3]])
+            val_preds_per_cls.append([pred[val_mask] for pred in val_preds])
+        create_roc_curve_grid(
+            [(test_preds_per_cls[i], val_preds_per_cls[i]) for i in range(20)],
+            titles=[f"Superclass {i}" for i in range(20)],
+            save_path="roc_curve_per_class",
+        )
+    elif args.num_base_classes == 20:
+        test_preds_per_cls = []
+        val_preds_per_cls = []
+        for cls in range(args.num_base_classes):
+            test_mask = torch.tensor([label.item() == cls for label in test_preds[3]])
+            test_preds_per_cls.append([pred[test_mask] for pred in test_preds])
+            val_mask = torch.tensor([label.item() == cls for label in val_preds[3]])
+            val_preds_per_cls.append([pred[val_mask] for pred in val_preds])
+        create_roc_curve_grid(
+            [(test_preds_per_cls[i], val_preds_per_cls[i]) for i in range(args.num_base_classes)],
+            titles=[f"Superclass {i}" for i in range(args.num_base_classes)],
             save_path="roc_curve_per_class",
         )
     else:

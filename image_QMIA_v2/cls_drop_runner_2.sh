@@ -14,7 +14,7 @@ python train_base.py --dataset=$BASE_DATASET --architecture=$BASE_ARCHITECTURE -
 --batch_size=32 --scheduler=step --scheduler_step_gamma=0.2 --scheduler_step_fraction=0.3 --lr=0.1 --weight_decay=5e-4 --epochs=100
 
 # Train QMIA
-for i in {0..4}; do
+for i in {5..9}; do
     DROPPED_CLASSES=$i
     echo "Running cinic-10 dropout on class $i"
     # Train QMIA
