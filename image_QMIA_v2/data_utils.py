@@ -554,6 +554,7 @@ def get_data(
     base_image_size: int,
     data_root: str,
     cls_drop: Optional[list] = None,
+    cls_samples: Optional[int] = None,
 ):
     """
     Get the dataset and transforms for the given dataset name.
@@ -597,19 +598,37 @@ def get_data(
             private_dataset = Subset(full_dataset, indices_a)
 
     # Drop classes if specified
+    current_indices = public_dataset.indices
+    original_dataset = public_dataset.dataset
+
     if cls_drop is not None and len(cls_drop) > 0:
         cls_drop = set(cls_drop)
-
-        original_dataset = public_dataset.dataset
-        current_indices = public_dataset.indices
-        new_indices = [
+        updated_indices = [
             i
             for i in current_indices
             if original_dataset.targets[i] not in cls_drop
         ]
-        public_dataset = Subset(
-            original_dataset, new_indices
-        )
+        current_indices = updated_indices
+
+    if cls_samples is not None:
+        updated_indices = []
+        classes = set(original_dataset.targets) if cls_drop is None else set(original_dataset.targets) - set(cls_drop)
+        # For each class in the dataset, select only cls_samples indices from current_indices
+        for cls in set(classes):
+            # Get indices in public_dataset that belong to this class
+            cls_indices = [i for i in current_indices if original_dataset.targets[i] == cls]
+            if len(cls_indices) > cls_samples:
+                selected = np.random.choice(cls_indices, size=cls_samples, replace=False)
+                updated_indices.extend(selected.tolist())
+            else:
+                updated_indices.extend(cls_indices)
+        # Optionally, sort indices if order matters
+        updated_indices.sort()
+        current_indices = updated_indices
+
+    public_dataset = Subset(
+        original_dataset, current_indices
+    )
 
     dataset_dict = {
         "private": private_dataset,
@@ -630,6 +649,7 @@ class CustomDataModule(pl.LightningDataModule):
         data_root: str = "./data",
         use_augmentation: bool = True,
         cls_drop: Optional[list] = None,
+        cls_samples: Optional[int] = None,
     ):
         super().__init__()
 
@@ -642,6 +662,7 @@ class CustomDataModule(pl.LightningDataModule):
         self.data_root = data_root
         self.use_augmentation = use_augmentation
         self.cls_drop = cls_drop
+        self.cls_samples = cls_samples
 
     def prepare_data(self) -> None:
         # TODO: Download the dataset if needed
@@ -656,6 +677,7 @@ class CustomDataModule(pl.LightningDataModule):
             base_image_size=self.base_image_size,
             data_root=self.data_root,
             cls_drop=self.cls_drop,
+            cls_samples=self.cls_samples,
         )
 
         stage = self.stage if self.stage is not None else stage

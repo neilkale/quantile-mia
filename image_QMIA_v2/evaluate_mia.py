@@ -115,6 +115,13 @@ def argparser():
     )
 
     parser.add_argument(
+        "--cls_samples",
+        type=int,
+        default=None,
+        help="keep only k samples from each class, e.g. --cls_samples 1000",
+    )
+
+    parser.add_argument(
         "--DEBUG",
         action="store_true",
         help="debug mode, set to True to run on CPU and with fewer epochs",
@@ -138,7 +145,7 @@ def argparser():
         raise ValueError(
             "You can only specify one of --cls_drop and --cls_drop_range"
         )
-    
+
     if args.cls_drop:
         cls_drop_str = "".join(str(c) for c in args.cls_drop)
     elif args.cls_drop_range:
@@ -147,6 +154,9 @@ def argparser():
         args.cls_drop = list(range(start, end))
     else:
         cls_drop_str = "none"
+
+    if args.cls_samples:
+        cls_drop_str += f"_samples_{args.cls_samples}"
     
     args.attack_checkpoint_path = os.path.join(
         args.model_root,

@@ -136,6 +136,13 @@ def argparser():
     )
 
     parser.add_argument(
+        "--cls_samples",
+        type=int,
+        default=None,
+        help="keep only k samples from each class, e.g. --cls_samples 1000",
+    )
+
+    parser.add_argument(
         "--early_stopping",
         type=int,
         default=None,
@@ -184,6 +191,9 @@ def argparser():
         args.cls_drop = list(range(start, end))
     else:
         cls_drop_str = "none"
+
+    if args.cls_samples:
+        cls_drop_str += f"_samples_{args.cls_samples}"
 
     args.attack_checkpoint_path = os.path.join(
         args.model_root,
@@ -249,6 +259,7 @@ def train_model(args):
         batch_size=args.batch_size if not args.DEBUG else 2,
         data_root=args.data_root,
         cls_drop=args.cls_drop,
+        cls_samples=args.cls_samples,
     )
     metric = "ptl/val_loss"
     mode = "min"
@@ -307,6 +318,7 @@ def train_model(args):
         default_root_dir=checkpoint_dir,
         strategy='ddp' if not args.DEBUG else 'ddp',
         gradient_clip_val=args.grad_clip,
+        check_val_every_n_epoch=args.save_steps if args.save_steps != None else args.epochs,
     )
 
     torch.set_float32_matmul_precision('medium')
